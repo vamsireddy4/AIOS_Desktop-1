@@ -3,16 +3,20 @@ import React from "react";
 type Variant = "filled" | "outline";
 
 /**
- * AIOS Brand Mark — italic Instrument Serif "A" inside an ink ring,
- * with a small sage live-dot at the lower-right edge.
+ * AIOS Brand Mark — the canonical "dot" logo: a paper-coloured circle with
+ * a small ink dot at the centre. Matches assets/icon.svg (the Dock / DMG
+ * icon) so the brand reads consistently across the OS icon, the sidebar,
+ * the splash card and any future surface.
  *
- * The dot uses the same sage accent as the chat live-dot, threading
- * brand identity through the whole app.
+ * `variant="outline"` flips to an ink-bordered transparent circle for use
+ * on light surfaces where the filled paper version would be invisible.
+ * `withDot` is preserved (no-op visually; the dot IS the brand) so existing
+ * callers don't need a refactor pass.
  */
 export function BrandMark({
   size = 32,
   variant = "filled",
-  withDot = false,
+  withDot: _withDot = false,
   className,
   title = "AIOS"
 }: {
@@ -23,12 +27,10 @@ export function BrandMark({
   title?: string;
 }) {
   const isFilled = variant === "filled";
-  const ringFill = isFilled ? "var(--ink, #0d0d0d)" : "transparent";
-  const ringStroke = "var(--ink, #0d0d0d)";
+  const ringFill = isFilled ? "var(--paper, #F3EFE8)" : "transparent";
+  const ringStroke = "var(--ink, #1A1A1C)";
   const ringStrokeWidth = isFilled ? 0 : 2;
-  const letterFill = isFilled ? "var(--paper, #fafaf7)" : "var(--ink, #0d0d0d)";
-  const dotFill = "var(--sage, #3d5a4a)";
-  const dotRingFill = isFilled ? "var(--ink, #0d0d0d)" : "var(--paper, #fafaf7)";
+  const dotFill = "var(--ink, #1A1A1C)";
 
   return (
     <svg
@@ -42,7 +44,6 @@ export function BrandMark({
       aria-label={title}
     >
       <title>{title}</title>
-      {/* Ring */}
       <circle
         cx="32"
         cy="32"
@@ -51,26 +52,7 @@ export function BrandMark({
         stroke={ringStroke}
         strokeWidth={ringStrokeWidth}
       />
-      {/* Italic A — Instrument Serif */}
-      <text
-        x="32"
-        y="46"
-        textAnchor="middle"
-        fontFamily="'Instrument Serif', 'Times New Roman', serif"
-        fontStyle="italic"
-        fontWeight="400"
-        fontSize="42"
-        fill={letterFill}
-      >
-        A
-      </text>
-      {/* Live-dot — sage, with a paper/ink halo so it reads on either background */}
-      {withDot ? (
-        <>
-          <circle cx="51" cy="49" r="6" fill={dotRingFill} />
-          <circle cx="51" cy="49" r="4" fill={dotFill} />
-        </>
-      ) : null}
+      <circle cx="32" cy="32" r="8.3" fill={dotFill} />
     </svg>
   );
 }

@@ -93,11 +93,15 @@
         color: #6b7280;
       }
       #aios-boot-splash .brand {
-        font-family: "Instrument Serif", Georgia, serif;
-        font-style: italic;
-        font-size: 22px;
-        color: #3d5a4a;
-        line-height: 1;
+        display: block;
+        width: 48px;
+        height: 48px;
+      }
+      #aios-boot-splash .brand-ring {
+        fill: #F3EFE8;
+      }
+      #aios-boot-splash .brand-dot {
+        fill: #1A1A1C;
       }
       /*
         Dark-theme overrides for the boot splash so users on dark theme
@@ -122,9 +126,13 @@
         border-color: rgba(156, 175, 155, 0.22);
         border-top-color: #9caf9b;
       }
-      [data-theme="dark"] #aios-boot-splash .brand,
-      html[data-theme="dark"] #aios-boot-splash .brand {
-        color: #9caf9b;
+      [data-theme="dark"] #aios-boot-splash .brand-ring,
+      html[data-theme="dark"] #aios-boot-splash .brand-ring {
+        fill: #2a2a28;
+      }
+      [data-theme="dark"] #aios-boot-splash .brand-dot,
+      html[data-theme="dark"] #aios-boot-splash .brand-dot {
+        fill: #9caf9b;
       }
       [data-theme="dark"] #aios-boot-splash .label,
       html[data-theme="dark"] #aios-boot-splash .label {
@@ -142,8 +150,11 @@
           border-color: rgba(156, 175, 155, 0.22);
           border-top-color: #9caf9b;
         }
-        html[data-theme="auto"] #aios-boot-splash .brand {
-          color: #9caf9b;
+        html[data-theme="auto"] #aios-boot-splash .brand-ring {
+          fill: #2a2a28;
+        }
+        html[data-theme="auto"] #aios-boot-splash .brand-dot {
+          fill: #9caf9b;
         }
         html[data-theme="auto"] #aios-boot-splash .label {
           color: #a3a3a3;
@@ -154,7 +165,10 @@
   <body>
     <div id="aios-boot-splash" aria-hidden="true">
       <div class="card">
-        <div class="brand">aios</div>
+        <svg class="brand" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AIOS">
+          <circle class="brand-ring" cx="32" cy="32" r="30"/>
+          <circle class="brand-dot" cx="32" cy="32" r="8.3"/>
+        </svg>
         <div class="spinner"></div>
         <div class="label" id="aios-boot-label">Loading your workspace…</div>
       </div>

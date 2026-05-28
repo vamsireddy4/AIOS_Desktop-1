@@ -265,3 +265,8 @@ releases:
     features:
       - opus-default-model
     notes: Default chat model flipped from Haiku (set in v0.3.0) to Opus. Reasoning — for AIOS's positioning, the smartest model per turn produces the best demos and the best work product, which matters more than raw speed. Sonnet and Haiku remain one click away in the model pill for when speed beats depth. Users with a persisted chat_model setting keep their choice.
+
+  - tag: v0.3.2
+    features:
+      - dot-logo-unified
+    notes: Brand mark unified across every surface. The "dot" logo from the macOS / Windows app icon (paper-coloured circle with a small ink dot at centre) now also shows in the sidebar header, the boot splash, and any other in-app BrandMark callsite. Previously the in-app mark was an italic "A" inside an ink ring + the boot splash was the italic "aios" wordmark — three different brand marks, now one. Dark-theme variants kept (ring darkens to deep grey, dot becomes the sage accent).
