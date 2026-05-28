@@ -25,6 +25,7 @@ import {
   HelpCircle,
   Inbox,
   Layers,
+  Lightbulb,
   ListChecks,
   Loader2,
   Megaphone,
@@ -201,6 +202,22 @@ function friendlyActivityLabel(activity: { tool: string; summary: string }): str
   }
   if (tool.startsWith("mcp__")) return `Calling ${tool.replace(/^mcp__/, "").replace(/__/g, " · ")}`;
   return `Running ${tool || "tool"}`;
+}
+
+function formatRunMeta(meta: { model?: string; durationMs?: number; costUsd?: number }): string {
+  const parts: string[] = [];
+  const modelLabel: Record<string, string> = {
+    opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", default: "Claude"
+  };
+  if (meta.model) parts.push(modelLabel[meta.model] ?? meta.model);
+  if (meta.durationMs && meta.durationMs > 0) {
+    const s = meta.durationMs / 1000;
+    parts.push(s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${s.toFixed(1)}s`);
+  }
+  if (typeof meta.costUsd === "number" && meta.costUsd > 0) {
+    parts.push(meta.costUsd < 0.01 ? `<$0.01` : `$${meta.costUsd.toFixed(2)}`);
+  }
+  return parts.join(" · ");
 }
 
 const starterPrompts = [
@@ -394,6 +411,27 @@ export function CommandScreen({
       .then((res) => { if (res?.value) setDisplayName(res.value); })
       .catch(() => undefined);
   }, []);
+  // Has ContextOS actually written real content yet? Drives the empty-chat
+  // state: brand-new workspaces get the onboarding cards (import / interview
+  // / prime), workspaces with real context get personalized "do work" chips.
+  // We treat any of the four core context files carrying >120 chars of
+  // non-template prose as "ready" — same bar as the host-side context brief.
+  const [contextReady, setContextReady] = useState<boolean>(false);
+  useEffect(() => {
+    invoke<{ files: Array<{ path: string; exists: boolean; preview: string }> }>("get_context_summary")
+      .then((res) => {
+        const files = res?.files ?? [];
+        const ready = files.some((f) => {
+          if (!f.exists) return false;
+          const p = (f.preview || "").trim();
+          if (p.length < 120) return false;
+          const lower = p.toLowerCase();
+          return !lower.includes("placeholder") && !lower.includes("your business does");
+        });
+        setContextReady(ready);
+      })
+      .catch(() => undefined);
+  }, []);
   const [dragActive, setDragActive] = useState(false);
   const dragCounterRef = useRef(0);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
@@ -420,6 +458,17 @@ export function CommandScreen({
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeButtonRef = useRef<HTMLButtonElement | null>(null);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
+  // One-time plan-mode discoverability hint. Shows the first time Claude asks
+  // a clarifying question (an AIOS_ASK message) while the user is in default
+  // mode — the exact moment Plan mode becomes relevant. Dismissed forever via
+  // localStorage once seen or acted on.
+  const [planHintSeen, setPlanHintSeen] = useState<boolean>(
+    () => { try { return localStorage.getItem("aios.hint.planmode") === "1"; } catch { return true; } }
+  );
+  const dismissPlanHint = () => {
+    setPlanHintSeen(true);
+    try { localStorage.setItem("aios.hint.planmode", "1"); } catch { /* ignore */ }
+  };
   // Plan card capture — when Claude calls ExitPlanMode mid-stream we stash
   // the plan markdown here. On run_task resolve we attach it to the assistant
   // message as planProposal so the renderer shows a Plan card. Ref (not state)
@@ -1669,6 +1718,11 @@ export function CommandScreen({
                 askOptions: askOptions ?? message.askOptions,
                 connectRequest: connectRequest ?? message.connectRequest,
                 planProposal: planProposal ?? message.planProposal,
+                runMeta: {
+                  model: selectedModel,
+                  durationMs: result.durationMs,
+                  costUsd: result.costUsd,
+                },
               }
             : message
         ),
@@ -2189,72 +2243,133 @@ export function CommandScreen({
               <div className="aios-chat-empty">
                 <div className="aios-chat-orb" aria-hidden="true">A</div>
                 <p className="aios-chat-kicker">AIOS · Command</p>
-                <h2>
-                  {displayName ? <>Hi {displayName} — let's set up your <em>context</em>.</> : <>Let's set up your <em>context</em>.</>}
-                </h2>
-                <p>
-                  {displayName
-                    ? `I'm your AIOS. The more I know about your work, the more useful I get. Pick one to start — or just type below.`
-                    : `I'm your AIOS. The more I know about your work, the more useful I get. Pick one to start — or just type below.`}
-                </p>
-                <div className="aios-chat-onboarding-cards">
-                  <button
-                    className="aios-chat-onboarding-card"
-                    onClick={() => { void pickFolderAttachment(); }}
-                  >
-                    <div className="aios-onboarding-card-icon"><FileText size={16} /></div>
-                    <div className="aios-onboarding-card-body">
-                      <strong>Import a folder</strong>
-                      <span>Point me at your work folder — notes, docs, a project — and I'll read it as context.</span>
+                {contextReady ? (
+                  <>
+                    <h2>
+                      {displayName ? <>Welcome back, {displayName}. What are we <em>moving</em> today?</> : <>Welcome back. What are we <em>moving</em> today?</>}
+                    </h2>
+                    <p>I've got your context loaded. Pick a starting point — or just tell me what you need.</p>
+                    <div className="aios-chat-onboarding-cards">
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => {
+                          const seed = "Based on my context, what's the single highest-leverage thing I should do right now? Be specific and tell me why.";
+                          setPrompt(seed);
+                          window.setTimeout(() => { const ta = composerRef.current; if (ta) { ta.focus(); ta.setSelectionRange(seed.length, seed.length); } }, 0);
+                        }}
+                      >
+                        <div className="aios-onboarding-card-icon"><Sparkles size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>What should I focus on?</strong>
+                          <span>I'll weigh your priorities and name the single highest-leverage next move.</span>
+                        </div>
+                      </button>
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => {
+                          const seed = "Brief me on where things stand right now — my priorities, what's in motion, and anything that needs my attention.";
+                          setPrompt(seed);
+                          window.setTimeout(() => { const ta = composerRef.current; if (ta) { ta.focus(); ta.setSelectionRange(seed.length, seed.length); } }, 0);
+                        }}
+                      >
+                        <div className="aios-onboarding-card-icon"><Command size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>Brief me</strong>
+                          <span>Where things stand — priorities, what's in motion, what needs attention.</span>
+                        </div>
+                      </button>
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => {
+                          const seed = "Draft my highest-priority deliverable right now. Pick the most important one from my context, then produce a real first draft I can use.";
+                          setPrompt(seed);
+                          window.setTimeout(() => { const ta = composerRef.current; if (ta) { ta.focus(); ta.setSelectionRange(seed.length, seed.length); } }, 0);
+                        }}
+                      >
+                        <div className="aios-onboarding-card-icon"><FileText size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>Draft my top priority</strong>
+                          <span>I'll pick your most important deliverable and produce a usable first draft.</span>
+                        </div>
+                      </button>
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => { window.setTimeout(() => composerRef.current?.focus(), 0); }}
+                      >
+                        <div className="aios-onboarding-card-icon"><MessageSquare size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>Just chat</strong>
+                          <span>Type anything below — I already know your context.</span>
+                        </div>
+                      </button>
                     </div>
-                  </button>
-                  <button
-                    className="aios-chat-onboarding-card"
-                    onClick={() => {
-                      const seed = "Interview me about what I do, what I'm working on, and what would make me more effective. Ask one question at a time, then save what you learn to my context.";
-                      setPrompt(seed);
-                      window.setTimeout(() => {
-                        const ta = composerRef.current;
-                        if (ta) { ta.focus(); ta.setSelectionRange(seed.length, seed.length); }
-                      }, 0);
-                    }}
-                  >
-                    <div className="aios-onboarding-card-icon"><MessageSquare size={16} /></div>
-                    <div className="aios-onboarding-card-body">
-                      <strong>Interview me</strong>
-                      <span>I'll ask a few questions about your work and write the answers into your context.</span>
+                  </>
+                ) : (
+                  <>
+                    <h2>
+                      {displayName ? <>Hi {displayName} — let's set up your <em>context</em>.</> : <>Let's set up your <em>context</em>.</>}
+                    </h2>
+                    <p>I'm your AIOS. The more I know about your work, the more useful I get. Pick one to start — or just type below.</p>
+                    <div className="aios-chat-onboarding-cards">
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => { void pickFolderAttachment(); }}
+                      >
+                        <div className="aios-onboarding-card-icon"><FileText size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>Import a folder</strong>
+                          <span>Point me at your work folder — notes, docs, a project — and I'll read it as context.</span>
+                        </div>
+                      </button>
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => {
+                          const seed = "Interview me about what I do, what I'm working on, and what would make me more effective. Ask one question at a time, then save what you learn to my context.";
+                          setPrompt(seed);
+                          window.setTimeout(() => {
+                            const ta = composerRef.current;
+                            if (ta) { ta.focus(); ta.setSelectionRange(seed.length, seed.length); }
+                          }, 0);
+                        }}
+                      >
+                        <div className="aios-onboarding-card-icon"><MessageSquare size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>Interview me</strong>
+                          <span>I'll ask a few questions about your work and write the answers into your context.</span>
+                        </div>
+                      </button>
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => {
+                          const seed = "/prime";
+                          setPrompt(seed);
+                          window.setTimeout(() => {
+                            const ta = composerRef.current;
+                            if (ta) { ta.focus(); ta.setSelectionRange(seed.length, seed.length); }
+                          }, 0);
+                        }}
+                      >
+                        <div className="aios-onboarding-card-icon"><Command size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>Show me what AIOS can do</strong>
+                          <span>Run /prime — I'll summarise your workspace and suggest the best next move.</span>
+                        </div>
+                      </button>
+                      <button
+                        className="aios-chat-onboarding-card"
+                        onClick={() => {
+                          window.setTimeout(() => composerRef.current?.focus(), 0);
+                        }}
+                      >
+                        <div className="aios-onboarding-card-icon"><Sparkles size={16} /></div>
+                        <div className="aios-onboarding-card-body">
+                          <strong>Just chat</strong>
+                          <span>Skip setup for now — type anything below and we'll get going.</span>
+                        </div>
+                      </button>
                     </div>
-                  </button>
-                  <button
-                    className="aios-chat-onboarding-card"
-                    onClick={() => {
-                      const seed = "/prime";
-                      setPrompt(seed);
-                      window.setTimeout(() => {
-                        const ta = composerRef.current;
-                        if (ta) { ta.focus(); ta.setSelectionRange(seed.length, seed.length); }
-                      }, 0);
-                    }}
-                  >
-                    <div className="aios-onboarding-card-icon"><Command size={16} /></div>
-                    <div className="aios-onboarding-card-body">
-                      <strong>Show me what AIOS can do</strong>
-                      <span>Run /prime — I'll summarise your workspace and suggest the best next move.</span>
-                    </div>
-                  </button>
-                  <button
-                    className="aios-chat-onboarding-card"
-                    onClick={() => {
-                      window.setTimeout(() => composerRef.current?.focus(), 0);
-                    }}
-                  >
-                    <div className="aios-onboarding-card-icon"><Sparkles size={16} /></div>
-                    <div className="aios-onboarding-card-body">
-                      <strong>Just chat</strong>
-                      <span>Skip setup for now — type anything below and we'll get going.</span>
-                    </div>
-                  </button>
-                </div>
+                  </>
+                )}
               </div>
             ) : null}
 
@@ -2320,6 +2435,11 @@ export function CommandScreen({
                           <span className="aios-attachment-kind">{att.kind === "plan" ? "Plan" : "Output"}</span>
                         </button>
                       ))}
+                    </div>
+                  ) : null}
+                  {message.role === "assistant" && message.runMeta && (message.runMeta.durationMs || message.runMeta.costUsd) ? (
+                    <div className="aios-run-meta" aria-label="run details">
+                      {formatRunMeta(message.runMeta)}
                     </div>
                   ) : null}
                   {message.role === "assistant" && message.connectRequest ? (
@@ -2787,6 +2907,25 @@ export function CommandScreen({
                   </div>
                 ) : null}
               </div>
+              {!planHintSeen && mode === "default" && (activeSession?.messages ?? []).some((m) => m.role === "assistant" && m.askOptions) ? (
+                <button
+                  type="button"
+                  className="aios-plan-hint"
+                  onClick={() => { pickMode("plan"); dismissPlanHint(); }}
+                  title="Switch this chat to Plan mode"
+                >
+                  <Lightbulb size={12} />
+                  <span>Tip: switch to <strong>Plan mode</strong> (⇧⇥) so Claude plans before acting</span>
+                  <span
+                    className="aios-plan-hint-x"
+                    role="button"
+                    aria-label="Dismiss tip"
+                    onClick={(e) => { e.stopPropagation(); dismissPlanHint(); }}
+                  >
+                    <X size={11} />
+                  </span>
+                </button>
+              ) : null}
               <div className="aios-mode-picker">
                 <button
                   ref={modeButtonRef}

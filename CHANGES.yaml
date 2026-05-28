@@ -281,3 +281,14 @@ releases:
       (1) Context brief injected into every chat spawn. Reads context/personal-info.md + business-info.md + strategy.md, distills into a ~600-char paragraph, appends as --append-system-prompt on every claude --print invocation. Result: typing "hi" in a new chat no longer triggers "run /prime to load context" — Claude already knows who you are. Brief returns empty for brand-new workspaces (template-only files) so token cost stays at zero until ContextOS has actually run.
       (2) Activity status strip — friendly labels for Composio tool calls. Previously showed "Calling composio · COMPOSIO_MULTI_EXECUTE_TOOL" — technical. Now shows "Working with your apps", "Gmail: send message", "Google Calendar: list events", etc. The user sees what's happening in their own apps.
       (3) CI Intel Mac matrix: curl to python.org wrapped in a 3-attempt retry loop with 20s/40s backoff. Single DNS blip no longer kills the release (we hit this on v0.3.0).
+
+  - tag: v0.5.0
+    features:
+      - adaptive-empty-chat-state
+      - per-message-run-meta
+      - plan-mode-contextual-hint
+    notes: |
+      Bundle 3 release — themed "make the chat feel like it knows you". Three visibility/polish improvements:
+      (1) Adaptive empty-chat state. A brand-new workspace still gets the onboarding cards (import folder / interview / prime / just chat). But once context/*.md has real content, the empty chat instead greets the user by name and offers "do work" chips — "What should I focus on?", "Brief me", "Draft my top priority", "Just chat". Detection via get_context_summary (any core file with >120 chars of non-template prose). Pairs with the v0.4.0 context brief so these chips actually produce personalized answers.
+      (2) Per-message run metadata. Each completed assistant turn shows a subtle muted row underneath: "Opus · 4.2s · $0.03". Removes the "is it slow because it's hard or because it's broken?" ambiguity. Persisted on the message so it survives reload.
+      (3) Plan-mode contextual hint. The first time Claude asks a clarifying question (AIOS_ASK) while the user is in default mode, a one-time dismissible chip appears by the mode pill: "Tip: switch to Plan mode (Shift+Tab) so Claude plans before acting." Clicking it switches to Plan mode; dismissed forever via localStorage.

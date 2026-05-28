@@ -368,6 +368,10 @@ export interface ChatMessage {
   // re-invokes run_task with promptToReplay + bypassPermissions, then
   // appends a new assistant message with the actual execution.
   planProposal?: { content: string; promptToReplay: string; status?: "pending" | "accepted" | "rejected" };
+  // Per-turn run metadata shown as a subtle muted row under the assistant
+  // bubble: which model answered, how long it took, what it cost. Removes the
+  // "is this slow because it's hard or because it's broken?" ambiguity.
+  runMeta?: { model?: string; durationMs?: number; costUsd?: number };
 }
 
 export type ChatPermissionMode = "default" | "plan" | "acceptEdits";
