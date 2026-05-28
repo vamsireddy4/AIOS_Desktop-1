@@ -124,6 +124,17 @@ export function ModulesScreen({
       .catch(() => undefined);
   }, []);
 
+  // Saved dynamic workflows in .claude/workflows/ — rerunnable multi-agent
+  // processes. The directory only exists once the user saves a workflow on a
+  // capable CLI (2.1.154+), so this stays empty (and the panel hidden) on
+  // older setups — no dead UI. Each runs via its `/<name>` slash command.
+  const [workflows, setWorkflows] = useState<Array<{ id: string; name: string; description: string }>>([]);
+  useEffect(() => {
+    invoke<Array<{ id: string; name: string; description: string }>>("list_workflows")
+      .then((res) => { if (Array.isArray(res)) setWorkflows(res); })
+      .catch(() => undefined);
+  }, []);
+
   const installedCount = modules.filter((m) => m.installed).length;
   const totalCount = modules.length;
   const progressPct = totalCount > 0 ? Math.round((installedCount / totalCount) * 100) : 0;
@@ -202,6 +213,36 @@ export function ModulesScreen({
                   <strong>{skill.name.replace(/-/g, " ")}</strong>
                   <span>{skill.description}</span>
                 </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {workflows.length > 0 ? (
+          <div className="modules-skills-panel">
+            <div className="modules-skills-head">
+              <span className="modules-skills-eyebrow">
+                <Sparkles size={12} />
+                Workflows · saved processes
+              </span>
+              <p className="modules-skills-detail">
+                Rerunnable multi-agent processes. Click Run to execute one again — Claude follows the
+                saved orchestration across every step.
+              </p>
+            </div>
+            <div className="modules-skills-grid">
+              {workflows.map((wf) => (
+                <button
+                  type="button"
+                  className="modules-skill-card modules-skill-card-run"
+                  key={wf.id}
+                  onClick={() => onAskClaude(`/${wf.id}`)}
+                  title={`Run workflow: ${wf.name}`}
+                >
+                  <strong>{wf.name.replace(/-/g, " ")}</strong>
+                  <span>{wf.description}</span>
+                  <span className="modules-skill-run-cue"><ArrowRight size={13} /> Run</span>
+                </button>
               ))}
             </div>
           </div>

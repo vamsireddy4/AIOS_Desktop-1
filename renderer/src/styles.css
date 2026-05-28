@@ -1082,6 +1082,18 @@ body.is-mac .sidebar-brand {
   transition: background 120ms ease;
 }
 .aios-plan-hint:hover { background: color-mix(in srgb, var(--sage) 16%, transparent); }
+.aios-workflow-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
 .aios-plan-hint strong { font-weight: 600; }
 .aios-plan-hint-x {
   display: inline-flex;
@@ -1871,6 +1883,24 @@ body.is-mac .sidebar-brand {
   font-size: 12px;
   line-height: 1.45;
   color: var(--ink-soft);
+}
+.modules-skill-card-run {
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.modules-skill-card-run:hover {
+  border-color: color-mix(in srgb, var(--sage) 40%, transparent);
+  background: color-mix(in srgb, var(--sage) 5%, var(--surface));
+}
+.modules-skill-run-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--sage);
 }
 .modules-connections-panel {
   background: var(--surface);

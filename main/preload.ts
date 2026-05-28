@@ -15,6 +15,7 @@ const allowedCommands = new Set<AiosCommand>([
   "move_file",
   "list_modules",
   "list_skills",
+  "list_workflows",
   "install_module",
   "get_context_summary",
   "list_workspace_files",

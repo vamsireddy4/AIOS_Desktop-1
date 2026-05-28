@@ -1064,6 +1064,60 @@ def list_skills() -> list[dict[str, Any]]:
     return skills
 
 
+def list_workflows() -> list[dict[str, Any]]:
+    """List dynamic workflows saved in the workspace's `.claude/workflows/`.
+
+    A workflow is a saved, rerunnable multi-agent orchestration (Claude Code
+    2.1.154+). Each is invoked as a `/<name>` slash command. We surface them in
+    the Modules screen so the user owns a library of executable processes. The
+    directory does not exist until the user saves their first workflow on a
+    capable CLI, so this returns [] cleanly on older setups — the UI hides the
+    panel entirely when empty.
+
+    Tolerant of two on-disk shapes: a flat file `<name>.{js,md,ts}`, or a
+    directory `<name>/` containing the script. Name/description come from
+    `---` frontmatter or a leading `# Heading` / first comment line.
+    """
+    workflows_dir = workspace_root() / ".claude" / "workflows"
+    if not workflows_dir.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for child in sorted(workflows_dir.iterdir(), key=lambda p: p.name.lower()):
+        if child.is_dir():
+            entry = child.name
+            candidates = list(child.glob("*.md")) + list(child.glob("*.js")) + list(child.glob("*.ts"))
+            source = candidates[0] if candidates else None
+        elif child.suffix.lower() in {".md", ".js", ".ts"}:
+            entry = child.stem
+            source = child
+        else:
+            continue
+        name = entry
+        description = ""
+        if source is not None:
+            try:
+                text = source.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                text = ""
+            if text.startswith("---"):
+                end = text.find("---", 3)
+                if end != -1:
+                    for line in text[3:end].splitlines():
+                        stripped = line.strip()
+                        if stripped.lower().startswith("name:"):
+                            name = stripped[5:].strip() or name
+                        elif stripped.lower().startswith("description:"):
+                            description = stripped[12:].strip()
+            if not description:
+                for line in text.splitlines():
+                    s = line.strip().lstrip("#").lstrip("/").strip()
+                    if s and not s.startswith("---"):
+                        description = s[:200]
+                        break
+        out.append({"id": entry, "name": name, "description": description})
+    return out
+
+
 def install_module(module_id: str) -> dict[str, Any]:
     root = workspace_root()
     source = root / "module-installs" / module_id

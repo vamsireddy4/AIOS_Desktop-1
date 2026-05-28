@@ -220,6 +220,22 @@ function formatRunMeta(meta: { model?: string; durationMs?: number; costUsd?: nu
   return parts.join(" · ");
 }
 
+// Dynamic workflows (the "Workflows" effort level) need Claude Code 2.1.154+.
+// Returns true only when we can confirm the CLI is new enough — unknown /
+// unparseable versions return false so we err toward showing the upgrade nudge.
+const WORKFLOWS_MIN_VERSION = [2, 1, 154];
+function cliSupportsWorkflows(version: string | null | undefined): boolean {
+  if (!version) return false;
+  const m = version.match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return false;
+  const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+  for (let i = 0; i < 3; i++) {
+    if (v[i] > WORKFLOWS_MIN_VERSION[i]) return true;
+    if (v[i] < WORKFLOWS_MIN_VERSION[i]) return false;
+  }
+  return true;
+}
+
 const starterPrompts = [
   { label: "Generate my first workspace summary", icon: Command, prompt: "/prime" },
   { label: "Review my AIOS context files", icon: FileText, prompt: "Review my AIOS context files and tell me what is strong, thin, or missing." },
@@ -2991,6 +3007,12 @@ export function CommandScreen({
                   </div>
                 ) : null}
               </div>
+              {selectedEffort === "ultracode" && !cliSupportsWorkflows(claude?.version) ? (
+                <span className="aios-workflow-note" title="Dynamic workflows require Claude Code 2.1.154 or newer">
+                  <Lightbulb size={12} />
+                  Workflows need Claude Code 2.1.154+ — update to unlock. Running as Deep for now.
+                </span>
+              ) : null}
               {!planHintSeen && mode === "default" && (activeSession?.messages ?? []).some((m) => m.role === "assistant" && m.askOptions) ? (
                 <button
                   type="button"

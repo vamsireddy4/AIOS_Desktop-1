@@ -313,3 +313,15 @@ releases:
       (1) New effort pill next to the model + mode pills: Auto (no flag, CLI default) / Deep (--effort xhigh) / Max (--effort max) / Workflows (--effort ultracode). Persisted in SQLite (chat_effort). Auto and the reasoning levels work on the current CLI today.
       (2) Dynamic workflows. Selecting "Workflows" passes --effort ultracode, which makes Claude write a JS orchestration script and run it across many agents (up to 1000, 16 concurrent) with only the final report returning to chat. Requires Claude Code 2.1.154+. CRITICAL SAFETY: the Python sidecar (host.py _effort_flags) detects the CLI version and gracefully degrades ultracode -> xhigh on older CLIs, so selecting Workflows never errors the spawn — it just lights up for real once the user's CLI updates (Claude Code auto-updates).
       Next (Phase 2, v0.8.0): "Save as workflow" + a Workflows library so a good multi-agent run becomes a one-click rerunnable process.
+
+  - tag: v0.8.0
+    features:
+      - workflows-library-panel
+      - list-workflows-ipc
+      - workflows-version-nudge
+    notes: |
+      Workflows Phase 2 — readiness. Builds the infrastructure for saved/rerunnable dynamic workflows without shipping any dead UI on CLIs that don't have workflows yet.
+      (1) list_workflows IPC (mirrors list_skills): reads .claude/workflows/, tolerant of flat-file or directory layouts and .md/.js/.ts, returns [] when the dir is absent. Wired through all four cross-stack places; dispatch test validates it.
+      (2) Workflows library panel in the Modules screen — renders ONLY when at least one workflow exists, so there is no empty dead panel on a pre-2.1.154 CLI. Each saved workflow is a card with a Run button that invokes its /<name> command. Lights up automatically the moment the user saves their first workflow.
+      (3) Version-aware unlock nudge: when the user selects the "Workflows" effort on a CLI older than 2.1.154, the composer shows an inline note — workflows need 2.1.154+, update to unlock, running as Deep meanwhile. The honest, testable-today piece that actually moves users toward enabling workflows.
+      Phase 3 (next): converge /goal + the agents canvas onto native workflows once the CLI floor is met.
