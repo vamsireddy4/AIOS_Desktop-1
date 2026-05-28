@@ -1307,8 +1307,61 @@ app.whenReady().then(() => {
   });
 
   // IPC: install the downloaded update + restart.
+  //
+  // Mac safety net (v0.2.75+): Squirrel.Mac's `quitAndInstall` quits the
+  // app and swaps the .app binary at its current location on disk. If the
+  // app is anywhere outside /Applications (DMG mount point, ~/Downloads,
+  // a Gatekeeper-translocated path), the swap silently fails — the user
+  // sees the app close and… nothing. No error, no new version.
+  //
+  // Previously we relied on a first-launch "Move to Applications?" prompt
+  // that could be dismissed with "Not now", leaving the user one Install
+  // click away from the silent-fail state. Now we intercept HERE: detect
+  // not-in-/Applications, auto-move (moveToApplicationsFolder restarts the
+  // app from the new location), and let the updater re-detect the pending
+  // download on relaunch so the user can click Install again — this time
+  // the swap completes. If the move itself fails, surface a clear error.
   ipcMain.handle("aios:install-update", async () => {
     if (!app.isPackaged) return { ok: false, reason: "not-packaged" };
+
+    if (
+      process.platform === "darwin" &&
+      typeof app.isInApplicationsFolder === "function" &&
+      !app.isInApplicationsFolder()
+    ) {
+      try {
+        app.moveToApplicationsFolder({
+          conflictHandler: (conflict) => {
+            // Older AIOS Desktop already exists in /Applications — replace it.
+            // The most common cause: user downloaded a fresh DMG to test and
+            // ran THIS copy, while their old install still lives in
+            // /Applications. Replacing is exactly what they want.
+            return conflict === "exists";
+          },
+        });
+        // moveToApplicationsFolder() is blocking on success — it quits +
+        // relaunches. If we reach this line the move was rejected (user
+        // declined the move dialog, or Finder rejected the swap).
+        return { ok: false, reason: "move-to-applications-declined" };
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        dialog.showMessageBoxSync({
+          type: "error",
+          title: "Update couldn't install",
+          message: "AIOS Desktop needs to be in /Applications to install updates.",
+          detail:
+            `macOS requires apps to live in /Applications for auto-update to write the new version. Please:\n\n` +
+            `  1. Quit AIOS Desktop\n` +
+            `  2. Drag AIOS Desktop.app from its current location into /Applications\n` +
+            `  3. Launch AIOS Desktop from /Applications\n` +
+            `  4. Try the update again — it will install cleanly\n\n` +
+            `Technical: ${detail}`,
+          buttons: ["OK"],
+        });
+        return { ok: false, error: detail };
+      }
+    }
+
     try {
       // isSilent: pass /S to NSIS to suppress the installer UI on update
       // installs (only honored when the installed shell supports it; with
