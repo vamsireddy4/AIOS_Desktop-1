@@ -270,3 +270,14 @@ releases:
     features:
       - dot-logo-unified
     notes: Brand mark unified across every surface. The "dot" logo from the macOS / Windows app icon (paper-coloured circle with a small ink dot at centre) now also shows in the sidebar header, the boot splash, and any other in-app BrandMark callsite. Previously the in-app mark was an italic "A" inside an ink ring + the boot splash was the italic "aios" wordmark — three different brand marks, now one. Dark-theme variants kept (ring darkens to deep grey, dot becomes the sage accent).
+
+  - tag: v0.4.0
+    features:
+      - context-brief-in-system-prompt
+      - composio-friendly-activity-labels
+      - ci-intel-mac-curl-retry
+    notes: |
+      Bundle 2 release — themed "polish + visibility". Three improvements + a CI hardening pass:
+      (1) Context brief injected into every chat spawn. Reads context/personal-info.md + business-info.md + strategy.md, distills into a ~600-char paragraph, appends as --append-system-prompt on every claude --print invocation. Result: typing "hi" in a new chat no longer triggers "run /prime to load context" — Claude already knows who you are. Brief returns empty for brand-new workspaces (template-only files) so token cost stays at zero until ContextOS has actually run.
+      (2) Activity status strip — friendly labels for Composio tool calls. Previously showed "Calling composio · COMPOSIO_MULTI_EXECUTE_TOOL" — technical. Now shows "Working with your apps", "Gmail: send message", "Google Calendar: list events", etc. The user sees what's happening in their own apps.
+      (3) CI Intel Mac matrix: curl to python.org wrapped in a 3-attempt retry loop with 20s/40s backoff. Single DNS blip no longer kills the release (we hit this on v0.3.0).

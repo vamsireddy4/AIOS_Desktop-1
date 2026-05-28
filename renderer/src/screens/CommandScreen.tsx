@@ -171,10 +171,36 @@ function friendlyActivityLabel(activity: { tool: string; summary: string }): str
       return "Spawning a sub-agent";
     case "NotebookEdit":
       return "Editing a notebook";
-    default:
-      if (tool.startsWith("mcp__")) return `Calling ${tool.replace(/^mcp__/, "").replace(/__/g, " · ")}`;
-      return `Running ${tool || "tool"}`;
   }
+  if (tool.startsWith("mcp__composio__")) {
+    const action = tool.replace(/^mcp__composio__/, "").toUpperCase();
+    // Composio meta-tools: the agent discovering + executing connector actions
+    if (action === "COMPOSIO_SEARCH_TOOLS") return "Finding the right tool";
+    if (action === "COMPOSIO_MULTI_EXECUTE_TOOL") return "Working with your apps";
+    if (action === "COMPOSIO_RETRIEVE_ACTIONS") return "Looking up available actions";
+    // Service-prefixed actions ("GMAIL_SEND_MESSAGE", "SLACK_LIST_CHANNELS", ...).
+    // Service slug is everything before the first underscore.
+    const underscore = action.indexOf("_");
+    if (underscore > 0) {
+      const service = action.slice(0, underscore);
+      const verb = action.slice(underscore + 1).toLowerCase().replace(/_/g, " ");
+      const niceService = service
+        .toLowerCase()
+        .replace(/^google/, "Google ")
+        .replace(/^googlecalendar$/i, "Google Calendar")
+        .replace(/^googlesheets$/i, "Google Sheets")
+        .replace(/^googleanalytics$/i, "Google Analytics")
+        .replace(/^googledrive$/i, "Google Drive")
+        .replace(/^googlemeet$/i, "Google Meet")
+        .replace(/^googlemaps$/i, "Google Maps")
+        .replace(/\b(\w)/g, (m) => m.toUpperCase())
+        .trim();
+      return `${niceService}: ${verb}`;
+    }
+    return `Calling ${action.toLowerCase().replace(/_/g, " ")}`;
+  }
+  if (tool.startsWith("mcp__")) return `Calling ${tool.replace(/^mcp__/, "").replace(/__/g, " · ")}`;
+  return `Running ${tool || "tool"}`;
 }
 
 const starterPrompts = [

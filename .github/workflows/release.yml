@@ -83,7 +83,20 @@ jobs:
         if: matrix.platform == 'mac' && matrix.arch == 'x64'
         run: |
           set -euo pipefail
-          curl -L -o /tmp/python-universal2.pkg https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
+          # Retry the python.org pkg fetch — GitHub runners occasionally hit
+          # DNS flakes (curl: (6) Could not resolve host: www.python.org)
+          # which would otherwise kill a perfectly good code release. 3 tries
+          # with 10s/30s backoff is enough for any plausible transient.
+          for attempt in 1 2 3; do
+            if curl -fL --connect-timeout 30 --max-time 180 \
+                -o /tmp/python-universal2.pkg \
+                https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg; then
+              break
+            fi
+            echo "Python download attempt $attempt failed; retrying..."
+            [ "$attempt" = "3" ] && { echo "All 3 attempts failed"; exit 6; }
+            sleep $((attempt * 20))
+          done
           sudo installer -pkg /tmp/python-universal2.pkg -target /
           PY=/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11
           echo "AIOS_X64_PYTHON=$PY" >> $GITHUB_ENV

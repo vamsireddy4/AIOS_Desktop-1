@@ -572,6 +572,60 @@ def _get_composio_system_prompt() -> str:
     return _build_composio_system_prompt()
 
 
+def _get_context_brief() -> str:
+    """Compact one-paragraph brief of who the user is and what they're
+    working on. Injected into every chat spawn so Claude doesn't have to
+    ask "what should I help you with" — and doesn't say "run /prime to
+    load context" — on the first message.
+
+    Pulls from context/personal-info.md, business-info.md, strategy.md.
+    Caps at ~600 chars total; long context lives in the files which
+    Claude can still read on demand. Returns an empty string when the
+    files are missing or look like the unfilled template, so a brand
+    new workspace doesn't pay the token cost.
+    """
+    try:
+        from workspace import workspace_root
+    except Exception:
+        return ""
+    files = ("personal-info.md", "business-info.md", "strategy.md")
+    parts: list[str] = []
+    root = workspace_root() / "context"
+    for filename in files:
+        target = root / filename
+        if not target.exists():
+            continue
+        try:
+            text = target.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        # Strip markdown headers and html comments, collapse whitespace.
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith(("#", "<!--", "-->"))
+        )
+        compact = " ".join(stripped.split())
+        # Skip files that still look like the unfilled template — keeps
+        # the brief out of the prompt until ContextOS has actually run.
+        if len(compact) < 80:
+            continue
+        lower = compact.lower()
+        if "placeholder" in lower or "fill in" in lower or "your business does" in lower:
+            continue
+        label = filename.replace(".md", "").replace("-", " ").title()
+        parts.append(f"{label}: {compact[:240]}")
+    if not parts:
+        return ""
+    joined = " | ".join(parts)
+    return (
+        "\n\n# Who the user is (autoloaded from context/*.md — no /prime needed)\n"
+        f"{joined}\n"
+        "Use this to answer naturally on the first turn. Never ask the user to "
+        "run /prime; you already have what /prime would load. Never ask 'what "
+        "do you want to work on' if the strategy block above already says."
+    )
+
+
 _ALLOWED_PERMISSION_MODES = {"bypassPermissions", "plan", "acceptEdits"}
 
 
@@ -672,6 +726,12 @@ def run_claude(
     # the legitimately-connected Composio account.
     mcp_isolation = _mcp_isolation_flags()
     composio_hint = ["--append-system-prompt", _get_composio_system_prompt()] if mcp_isolation else []
+    # Context brief — compact "who is this user" paragraph from context/*.md.
+    # Lets Claude answer the first message naturally instead of dead-ending
+    # with "run /prime". Returns empty string when the workspace is brand
+    # new (no real context yet) so it doesn't waste tokens.
+    context_brief = _get_context_brief()
+    context_hint = ["--append-system-prompt", context_brief] if context_brief else []
     # Per-call system-prompt overlay — used by chat when an @agent is selected.
     # Stacks on top of the Composio hint, so the agent persona wraps inside the
     # tool-use guardrails. Empty / missing = chat default behavior.
@@ -686,8 +746,8 @@ def run_claude(
     if pmode == "plan":
         plan_mode_hint = ["--append-system-prompt", _PLAN_MODE_HINT]
     attempts = [
-        [path, "--print", *resume, *mcp_isolation, *composio_hint, *agent_overlay, *plan_mode_hint, *model_flags, *add_dir_flags, "--output-format", "json", "--permission-mode", pmode, prompt],
-        [path, "--print", *resume, *mcp_isolation, *composio_hint, *agent_overlay, *plan_mode_hint, *model_flags, *add_dir_flags, "--output-format", "text", "--permission-mode", pmode, prompt],
+        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *add_dir_flags, "--output-format", "json", "--permission-mode", pmode, prompt],
+        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *add_dir_flags, "--output-format", "text", "--permission-mode", pmode, prompt],
     ]
     if stream_id:
         stream_command = [
@@ -696,6 +756,7 @@ def run_claude(
             *resume,
             *mcp_isolation,
             *composio_hint,
+            *context_hint,
             *agent_overlay,
             *plan_mode_hint,
             *model_flags,
