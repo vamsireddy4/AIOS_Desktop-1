@@ -240,6 +240,17 @@ const CHAT_MODELS = [
   { id: "default", label: "CLI default", description: "Use whatever your Claude CLI is set to" }
 ] as const;
 
+// Effort levels. "auto" passes no flag (CLI default). The rest map to the
+// CLI's --effort flag. "ultracode" enables dynamic workflows (Claude writes
+// an orchestration script and runs it across many agents) — needs Claude Code
+// 2.1.154+; the sidecar degrades it to xhigh on older CLIs so it never errors.
+const EFFORT_OPTIONS = [
+  { id: "auto",      label: "Auto",      description: "Default — fast, no extra reasoning budget" },
+  { id: "xhigh",     label: "Deep",      description: "Extra reasoning for harder, multi-step work" },
+  { id: "max",       label: "Max",       description: "Maximum reasoning — slowest, most thorough" },
+  { id: "ultracode", label: "Workflows", description: "Beta · Claude plans an orchestration and runs it across many agents" }
+] as const;
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
@@ -449,6 +460,13 @@ export function CommandScreen({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelButtonRef = useRef<HTMLButtonElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  // Effort / reasoning level. Auto = no flag (CLI default). Deep = xhigh,
+  // Max = max, Workflows = ultracode (dynamic workflows; host.py degrades it
+  // to xhigh on a pre-2.1.154 CLI so it never errors). Persisted in SQLite.
+  const [selectedEffort, setSelectedEffort] = useState<string>("auto");
+  const [effortMenuOpen, setEffortMenuOpen] = useState(false);
+  const effortButtonRef = useRef<HTMLButtonElement | null>(null);
+  const effortMenuRef = useRef<HTMLDivElement | null>(null);
   // Permission mode pill (default / plan / acceptEdits). Mirrors Claude Code
   // CLI's Shift+Tab cycle. Persisted per session in SQLite via save_session.
   // Default = today's behavior (bypassPermissions); Plan = read-only + plan
@@ -549,6 +567,17 @@ export function CommandScreen({
       .catch(() => undefined);
   }, []);
 
+  // Load persisted effort choice on mount.
+  useEffect(() => {
+    invoke<{ key: string; value: string | null }>("get_setting", { key: "chat_effort" })
+      .then((r) => {
+        if (r?.value && EFFORT_OPTIONS.some((e) => e.id === r.value)) {
+          setSelectedEffort(r.value);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   // Chat-referenceable folder palette source. Combines:
   //   - starred local import folders (context/import/<name>) from
   //     list_marked_import_folders
@@ -627,6 +656,23 @@ export function CommandScreen({
     setModelMenuOpen(false);
     await invoke("set_setting", { key: "chat_model", value: id }).catch(() => undefined);
   }
+
+  async function pickEffort(id: string) {
+    setSelectedEffort(id);
+    setEffortMenuOpen(false);
+    await invoke("set_setting", { key: "chat_effort", value: id }).catch(() => undefined);
+  }
+
+  useEffect(() => {
+    if (!effortMenuOpen) return;
+    const onDoc = (event: MouseEvent) => {
+      if (effortMenuRef.current?.contains(event.target as Node)) return;
+      if (effortButtonRef.current?.contains(event.target as Node)) return;
+      setEffortMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [effortMenuOpen]);
 
   // Click-away for the mode dropdown.
   useEffect(() => {
@@ -1587,6 +1633,10 @@ export function CommandScreen({
       // Pass the user-picked model through as --model <alias>. "default" means
       // omit the flag so Claude CLI uses whatever's configured globally.
       if (selectedModel && selectedModel !== "default") baseArgs.model = selectedModel;
+      // Effort / reasoning level. "auto" omits the flag; everything else
+      // passes --effort <level>. "ultracode" (Workflows) is degraded to xhigh
+      // by the sidecar on a pre-2.1.154 CLI so it never errors.
+      if (selectedEffort && selectedEffort !== "auto") baseArgs.effort = selectedEffort;
       // Permission mode (default / plan / acceptEdits). Wire value differs
       // from UI: "default" → bypassPermissions on the spawn flag. Plan-card
       // Accept passes options.permissionModeOverride = "bypassPermissions"
@@ -2902,6 +2952,40 @@ export function CommandScreen({
                           <span>{m.description}</span>
                         </span>
                         {selectedModel === m.id ? <Check size={12} /> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="aios-model-picker">
+                <button
+                  ref={effortButtonRef}
+                  type="button"
+                  className="aios-model-pill"
+                  onClick={() => setEffortMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={effortMenuOpen}
+                  title="Reasoning effort. Workflows (beta) lets Claude orchestrate many agents — needs Claude Code 2.1.154+."
+                >
+                  <Sparkles size={12} />
+                  <span>{EFFORT_OPTIONS.find((e) => e.id === selectedEffort)?.label ?? "Auto"}</span>
+                  <ChevronDown size={12} />
+                </button>
+                {effortMenuOpen ? (
+                  <div ref={effortMenuRef} className="aios-model-menu" role="menu">
+                    {EFFORT_OPTIONS.map((e) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        role="menuitem"
+                        className={`aios-model-option ${selectedEffort === e.id ? "is-active" : ""}`}
+                        onClick={() => pickEffort(e.id)}
+                      >
+                        <span className="aios-model-option-text">
+                          <strong>{e.label}</strong>
+                          <span>{e.description}</span>
+                        </span>
+                        {selectedEffort === e.id ? <Check size={12} /> : null}
                       </button>
                     ))}
                   </div>

@@ -303,3 +303,13 @@ releases:
       (1) Skills as capabilities. The starter kit ships three real model-invoked Skills in .claude/skills/ — daily-brief, prioritize, social-carousel — alongside skill-creator + mcp-integration. Unlike modules, skills need NO install and NO slash command: Claude reaches for them automatically when the user's intent matches the skill's description. Foundation for migrating the whole module system to skills (and the delivery mechanism for the future Knowledge Bank product).
       (2) Full-toolkit system prompt. python/host.py's chat system prompt now tells Claude to use its full native toolkit proactively: invoke Skills by intent, call TodoWrite for any 3+ step task (AIOS surfaces the todos live), delegate independent sub-tasks to subagents in parallel, think/plan before big or ambiguous work.
       (3) Skills in the Modules screen. New list_skills IPC + a "Skills · always on" panel so users SEE what their AIOS already does on its own, with no install and no commands to memorize.
+
+  - tag: v0.7.0
+    features:
+      - effort-pill-control
+      - dynamic-workflows-ultracode
+    notes: |
+      Workflows Phase 1 — the effort/reasoning control, the on-ramp to Claude Code's dynamic workflows. Roadmap at plans/2026-05-29-workflows-roadmap.md.
+      (1) New effort pill next to the model + mode pills: Auto (no flag, CLI default) / Deep (--effort xhigh) / Max (--effort max) / Workflows (--effort ultracode). Persisted in SQLite (chat_effort). Auto and the reasoning levels work on the current CLI today.
+      (2) Dynamic workflows. Selecting "Workflows" passes --effort ultracode, which makes Claude write a JS orchestration script and run it across many agents (up to 1000, 16 concurrent) with only the final report returning to chat. Requires Claude Code 2.1.154+. CRITICAL SAFETY: the Python sidecar (host.py _effort_flags) detects the CLI version and gracefully degrades ultracode -> xhigh on older CLIs, so selecting Workflows never errors the spawn — it just lights up for real once the user's CLI updates (Claude Code auto-updates).
+      Next (Phase 2, v0.8.0): "Save as workflow" + a Workflows library so a good multi-agent run becomes a one-click rerunnable process.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -686,6 +687,51 @@ _PLAN_MODE_HINT = (
 )
 
 
+# Effort levels every Claude Code CLI accepts. "ultracode" (the dynamic-
+# workflow trigger) was added in 2.1.154 — passing it to an older CLI is a
+# hard error, so we version-gate it and fall back to xhigh.
+_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+_ULTRACODE_MIN_VERSION = (2, 1, 154)
+_cli_version_cache: tuple[int, int, int] | None = None
+_cli_version_probed = False
+
+
+def _claude_cli_version(path: str) -> tuple[int, int, int] | None:
+    """Best-effort (major, minor, patch) of the Claude CLI, cached for the
+    process. Returns None if it can't be determined."""
+    global _cli_version_cache, _cli_version_probed
+    if _cli_version_probed:
+        return _cli_version_cache
+    _cli_version_probed = True
+    try:
+        out = subprocess.run(
+            [path, "--version"], capture_output=True, text=True, timeout=10
+        ).stdout
+        match = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+        if match:
+            _cli_version_cache = (int(match[1]), int(match[2]), int(match[3]))
+    except Exception:
+        _cli_version_cache = None
+    return _cli_version_cache
+
+
+def _effort_flags(effort: str | None, path: str) -> list[str]:
+    """Map an effort selection to a CLI flag, never producing an arg the
+    installed CLI would reject. 'auto'/empty = no flag. 'ultracode' on a
+    pre-2.1.154 CLI gracefully degrades to 'xhigh' so the spawn never errors."""
+    level = (effort or "").strip().lower()
+    if not level or level == "auto":
+        return []
+    if level == "ultracode":
+        version = _claude_cli_version(path)
+        if version is None or version < _ULTRACODE_MIN_VERSION:
+            level = "xhigh"
+        return ["--effort", level]
+    if level in _EFFORT_LEVELS:
+        return ["--effort", level]
+    return []
+
+
 def run_claude(
     prompt: str,
     claude_path: str | None = None,
@@ -697,6 +743,7 @@ def run_claude(
     system_prompt: str | None = None,
     add_dirs: list[str] | None = None,
     permission_mode: str = "bypassPermissions",
+    effort: str | None = None,
 ) -> dict[str, Any]:
     path = claude_path or get_setting("claude_path")
     if not path:
@@ -713,6 +760,10 @@ def run_claude(
     # the same tool-call result, dropping identify from ~10s to ~3-4s.
     # Falsy / unset = use the user's default model.
     model_flags = ["--model", model] if model else []
+    # Effort / reasoning level. "ultracode" turns on dynamic workflows
+    # (CLI >= 2.1.154); _effort_flags version-gates it so older CLIs degrade
+    # to xhigh instead of erroring.
+    effort_flags = _effort_flags(effort, path)
     # Extra dirs to grant Claude tool scope over — used when the user attaches
     # a folder in chat or @mentions a marked import folder. Lazy: --add-dir only
     # grants Read/Glob/Grep permission, it does NOT pre-read the directory, so
@@ -762,8 +813,8 @@ def run_claude(
     if pmode == "plan":
         plan_mode_hint = ["--append-system-prompt", _PLAN_MODE_HINT]
     attempts = [
-        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *add_dir_flags, "--output-format", "json", "--permission-mode", pmode, prompt],
-        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *add_dir_flags, "--output-format", "text", "--permission-mode", pmode, prompt],
+        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *effort_flags, *add_dir_flags, "--output-format", "json", "--permission-mode", pmode, prompt],
+        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *effort_flags, *add_dir_flags, "--output-format", "text", "--permission-mode", pmode, prompt],
     ]
     if stream_id:
         stream_command = [
@@ -776,6 +827,7 @@ def run_claude(
             *agent_overlay,
             *plan_mode_hint,
             *model_flags,
+            *effort_flags,
             *add_dir_flags,
             "--verbose",
             "--output-format",
@@ -1212,6 +1264,7 @@ def run_task(args: dict[str, Any]) -> dict[str, Any]:
             system_prompt=str(args.get("systemPrompt") or "") or None,
             add_dirs=add_dirs or None,
             permission_mode=str(args.get("permissionMode") or "") or "bypassPermissions",
+            effort=str(args.get("effort") or "") or None,
         )
     finally:
         for p in image_paths:
