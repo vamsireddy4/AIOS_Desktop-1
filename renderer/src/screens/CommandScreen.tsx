@@ -185,12 +185,14 @@ const starterPrompts = [
 
 // Model picker options. "default" omits --model from the spawn so Claude CLI
 // uses whatever the user has configured. The other three pass the short alias
-// that Claude Code CLI accepts.
+// that Claude Code CLI accepts. Haiku is the AIOS default — speed beats
+// smarts on the first 10 minutes, which is when users churn. Sonnet/Opus
+// remain one click away in the pill.
 const CHAT_MODELS = [
-  { id: "default", label: "Default",     description: "Use your Claude CLI default" },
-  { id: "haiku",   label: "Haiku 4.5",   description: "Fastest · best for simple tasks" },
-  { id: "sonnet",  label: "Sonnet 4.6",  description: "Balanced · everyday default" },
-  { id: "opus",    label: "Opus 4.7",    description: "Smartest · slowest, most capable" }
+  { id: "haiku",   label: "Haiku 4.5",   description: "Fastest · the AIOS default" },
+  { id: "sonnet",  label: "Sonnet 4.6",  description: "Balanced · for complex reasoning" },
+  { id: "opus",    label: "Opus 4.7",    description: "Smartest · slowest, most capable" },
+  { id: "default", label: "CLI default", description: "Use whatever your Claude CLI is set to" }
 ] as const;
 
 function CopyButton({ text }: { text: string }) {
@@ -374,7 +376,10 @@ export function CommandScreen({
   // re-fetched whenever the Python sidecar broadcasts `imports_changed`.
   type MarkedFolder = { name: string; absolutePath: string; markedAt: string };
   const [markedFolders, setMarkedFolders] = useState<MarkedFolder[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>("default");
+  // Haiku is the new install default — see CHAT_MODELS rationale.
+  // Returning users with a persisted `chat_model` setting override this on
+  // mount in the useEffect below.
+  const [selectedModel, setSelectedModel] = useState<string>("haiku");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelButtonRef = useRef<HTMLButtonElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
