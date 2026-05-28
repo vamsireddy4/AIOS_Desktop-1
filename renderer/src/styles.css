@@ -1824,6 +1824,54 @@ body.is-mac .sidebar-brand {
 .modules-readme-empty { font-size: 12.5px; color: var(--gray-500); margin: 0; font-style: italic; }
 
 /* Connections panel */
+.modules-skills-panel {
+  background: color-mix(in srgb, var(--sage) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--sage) 22%, transparent);
+  border-radius: 14px;
+  padding: 18px 22px;
+  margin-top: 8px;
+}
+.modules-skills-head { margin-bottom: 14px; }
+.modules-skills-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+.modules-skills-detail {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  max-width: 60ch;
+}
+.modules-skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.modules-skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.modules-skill-card strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.modules-skill-card span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
 .modules-connections-panel {
   background: var(--surface);
   border: 1px solid var(--border);

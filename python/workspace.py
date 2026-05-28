@@ -1025,6 +1025,45 @@ def list_modules() -> list[dict[str, Any]]:
     return output
 
 
+def list_skills() -> list[dict[str, Any]]:
+    """List Claude-native Skills installed in the workspace's `.claude/skills/`.
+
+    Skills are model-invoked capabilities — Claude reaches for them based on
+    the user's intent, no install step and no slash command needed. We parse
+    the `name` and `description` from each SKILL.md's YAML frontmatter so the
+    Modules screen can show the user what their AIOS can already do on its own.
+    """
+    skills_dir = workspace_root() / ".claude" / "skills"
+    if not skills_dir.exists():
+        return []
+    skills: list[dict[str, Any]] = []
+    for child in sorted(skills_dir.iterdir(), key=lambda p: p.name.lower()):
+        if not child.is_dir():
+            continue
+        skill_md = child / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        name = child.name
+        description = ""
+        try:
+            text = skill_md.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            text = ""
+        # Minimal frontmatter parse — name + description between the leading
+        # `---` fences. Avoids a YAML dependency for two flat string fields.
+        if text.startswith("---"):
+            end = text.find("---", 3)
+            if end != -1:
+                for line in text[3:end].splitlines():
+                    stripped = line.strip()
+                    if stripped.lower().startswith("name:"):
+                        name = stripped[5:].strip() or name
+                    elif stripped.lower().startswith("description:"):
+                        description = stripped[12:].strip()
+        skills.append({"id": child.name, "name": name, "description": description})
+    return skills
+
+
 def install_module(module_id: str) -> dict[str, Any]:
     root = workspace_root()
     source = root / "module-installs" / module_id

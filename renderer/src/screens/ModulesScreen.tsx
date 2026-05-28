@@ -113,6 +113,17 @@ export function ModulesScreen({
       .catch(() => undefined);
   }, [modules]);
 
+  // Claude-native Skills installed in .claude/skills/. Unlike modules, skills
+  // need no install and no slash command — Claude invokes them automatically
+  // when the user's intent matches. Surfaced here so the user can SEE what
+  // their AIOS already does on its own.
+  const [skills, setSkills] = useState<Array<{ id: string; name: string; description: string }>>([]);
+  useEffect(() => {
+    invoke<Array<{ id: string; name: string; description: string }>>("list_skills")
+      .then((res) => { if (Array.isArray(res)) setSkills(res); })
+      .catch(() => undefined);
+  }, []);
+
   const installedCount = modules.filter((m) => m.installed).length;
   const totalCount = modules.length;
   const progressPct = totalCount > 0 ? Math.round((installedCount / totalCount) * 100) : 0;
@@ -170,6 +181,29 @@ export function ModulesScreen({
               Install {recommendedNext.name}
               <ArrowRight size={14} />
             </button>
+          </div>
+        ) : null}
+
+        {skills.length > 0 ? (
+          <div className="modules-skills-panel">
+            <div className="modules-skills-head">
+              <span className="modules-skills-eyebrow">
+                <Sparkles size={12} />
+                Skills · always on
+              </span>
+              <p className="modules-skills-detail">
+                No install, no commands to remember. Claude reaches for these automatically when what
+                you ask for matches — just describe what you need.
+              </p>
+            </div>
+            <div className="modules-skills-grid">
+              {skills.map((skill) => (
+                <div className="modules-skill-card" key={skill.id}>
+                  <strong>{skill.name.replace(/-/g, " ")}</strong>
+                  <span>{skill.description}</span>
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 

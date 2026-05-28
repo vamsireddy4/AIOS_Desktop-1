@@ -52,6 +52,7 @@ from workspace import (
     workspace_root,
     write_file,
     list_modules,
+    list_skills,
     build_daily_brief_prompt,
     get_today_brief_status,
     get_daily_brief,
@@ -477,6 +478,21 @@ _COMPOSIO_SYSTEM_PROMPT_BASE = (
     "structured research with citations). Delegate to one with the Task tool "
     "when the request matches — fresh context window, focused system prompt, "
     "constrained tools. They beat trying to do everything in this turn.\n"
+    "• Skills (v0.6.0+): the workspace ships Skills in `.claude/skills/` — "
+    "packaged capabilities you invoke with the Skill tool when the user's "
+    "intent matches a skill's description. ALWAYS prefer an installed skill "
+    "over improvising the same work from scratch: skills carry the right "
+    "steps, templates, and house style. You don't need the user to name a "
+    "skill or type a slash command — read their intent and reach for the "
+    "matching skill yourself. If no skill fits, just do the work normally.\n"
+    "• Use your full toolkit proactively (v0.6.0+): For any task with 3+ "
+    "distinct steps, call TodoWrite first and keep it updated — AIOS surfaces "
+    "your to-dos live so the user can watch progress. For big or ambiguous "
+    "requests, think before acting and lay out the approach. For independent "
+    "sub-tasks (research + draft + review), delegate them to subagents in "
+    "parallel rather than serially. The goal: act like a senior operator who "
+    "decomposes, delegates, and shows their work — not a chatbot that does "
+    "everything inline.\n"
     "• Connect a service inline (v0.2.47+): when the user asks for something "
     "that needs a service that isn't connected, instead of just saying 'open "
     "the Connectors page', end your reply with: `[AIOS_CONNECT: <slug>]` "
@@ -2226,6 +2242,7 @@ def dispatch(cmd: str, args: dict[str, Any]) -> Any:
         "append_file": lambda a: append_file(require_str(a, "path"), require_str(a, "content")),
         "move_file": lambda a: move_file(require_str(a, "fromPath"), require_str(a, "toPath")),
         "list_modules": lambda _args: list_modules(),
+        "list_skills": lambda _args: list_skills(),
         "install_module": lambda a: copy_module_assets(require_str(a, "moduleId")),
         "get_context_summary": lambda _args: get_context_summary(),
         "list_workspace_files": lambda a: list_workspace_files(int(a.get("limit") or 400)),

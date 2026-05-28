@@ -292,3 +292,14 @@ releases:
       (1) Adaptive empty-chat state. A brand-new workspace still gets the onboarding cards (import folder / interview / prime / just chat). But once context/*.md has real content, the empty chat instead greets the user by name and offers "do work" chips — "What should I focus on?", "Brief me", "Draft my top priority", "Just chat". Detection via get_context_summary (any core file with >120 chars of non-template prose). Pairs with the v0.4.0 context brief so these chips actually produce personalized answers.
       (2) Per-message run metadata. Each completed assistant turn shows a subtle muted row underneath: "Opus · 4.2s · $0.03". Removes the "is it slow because it's hard or because it's broken?" ambiguity. Persisted on the message so it survives reload.
       (3) Plan-mode contextual hint. The first time Claude asks a clarifying question (AIOS_ASK) while the user is in default mode, a one-time dismissible chip appears by the mode pill: "Tip: switch to Plan mode (Shift+Tab) so Claude plans before acting." Clicking it switches to Plan mode; dismissed forever via localStorage.
+
+  - tag: v0.6.0
+    features:
+      - skills-as-capabilities
+      - full-toolkit-system-prompt
+      - skills-in-modules-ui
+    notes: |
+      Claude-native foundation — first step of making AIOS use 100% of Claude Code instead of ~30%. Full strategy at plans/2026-05-28-claude-native-roadmap.md. Reframe: let Claude Code be the engine, make AIOS the cockpit; stop reimplementing primitives, expose them.
+      (1) Skills as capabilities. The starter kit ships three real model-invoked Skills in .claude/skills/ — daily-brief, prioritize, social-carousel — alongside skill-creator + mcp-integration. Unlike modules, skills need NO install and NO slash command: Claude reaches for them automatically when the user's intent matches the skill's description. Foundation for migrating the whole module system to skills (and the delivery mechanism for the future Knowledge Bank product).
+      (2) Full-toolkit system prompt. python/host.py's chat system prompt now tells Claude to use its full native toolkit proactively: invoke Skills by intent, call TodoWrite for any 3+ step task (AIOS surfaces the todos live), delegate independent sub-tasks to subagents in parallel, think/plan before big or ambiguous work.
+      (3) Skills in the Modules screen. New list_skills IPC + a "Skills · always on" panel so users SEE what their AIOS already does on its own, with no install and no commands to memorize.
