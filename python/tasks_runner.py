@@ -180,7 +180,11 @@ def _run_one_task(task: dict[str, Any], broadcast: _BroadcastFn) -> None:
     # produce one coherent reply tying the children's work together — not
     # to delegate further.
     is_synthesis_pass = bool(task.get("synthesis_pass"))
+    # Strip the [TEAM_MODE] UI marker (it routes to CEO + forces decomposition
+    # via the CEO system prompt; Claude doesn't need to see it as raw text).
     task_message = task["message"]
+    if task_message.lstrip().startswith("[TEAM_MODE]"):
+        task_message = task_message.lstrip()[len("[TEAM_MODE]"):].lstrip()
     if is_synthesis_pass:
         task_message = _build_synthesis_message(task)
     elif _was_last_action_approval(task):
@@ -531,11 +535,47 @@ def _run_one_task(task: dict[str, Any], broadcast: _BroadcastFn) -> None:
 
     # Handle [ASSIGN_TASK: <slug> | <message>] sentinels. Each match creates
     # a real child task linked to this one via parent_task_id. If at least
-    # one child is created AND this isn't already a synthesis pass, mark this
-    # task as awaiting_children — the child-completion trigger will re-queue
-    # it for a synthesis pass once all delegates finish.
+    # one child is created the parent is marked awaiting_children — the
+    # child-completion trigger re-queues it for a synthesis pass.
+    #
+    # Multi-round support: synthesis passes CAN now also emit [ASSIGN_TASK:]
+    # IF the round count is still under MAX_SYNTHESIS_ROUNDS. This lets CEO
+    # iterate ("specialist A's answer was thin, ask them again with more
+    # context"). On the final round, sentinels are silently dropped — the
+    # _build_synthesis_message prompt tells the agent this.
+    #
+    # Depth + total-descendants guards: a specialist can also emit
+    # [ASSIGN_TASK:], creating grandchildren. We cap depth at
+    # MAX_DELEGATION_DEPTH and total descendants per top-level parent at
+    # MAX_DESCENDANTS_PER_PARENT to prevent runaway.
     children_created = 0
-    if not is_synthesis_pass:
+    # Compute the top-level ancestor of this task (the parent at depth 0).
+    # Used to check global caps that apply across all descendants.
+    top_ancestor_id = task_id
+    cur_ancestor = task
+    for _ in range(10):
+        parent_id = cur_ancestor.get("parent_task_id")
+        if not parent_id:
+            break
+        parent_t = tasks_store.get_task(parent_id)
+        if not parent_t:
+            break
+        top_ancestor_id = parent_id
+        cur_ancestor = parent_t
+    current_depth = tasks_store.get_task_depth(task_id)
+    all_descendants = tasks_store.list_descendant_tasks(top_ancestor_id)
+    total_descendants = len(all_descendants)
+    # Multi-round synthesis cap: allow delegation if round < MAX, silently
+    # drop sentinels otherwise. Solo (non-synthesis) calls always allowed.
+    synthesis_round_n = int(task.get("synthesis_round") or 0)
+    can_delegate = True
+    if is_synthesis_pass and synthesis_round_n >= MAX_SYNTHESIS_ROUNDS:
+        can_delegate = False
+    if current_depth >= MAX_DELEGATION_DEPTH:
+        can_delegate = False
+    if total_descendants >= MAX_DESCENDANTS_PER_PARENT:
+        can_delegate = False
+    if can_delegate:
         for match in _RE_ASSIGN_TASK.finditer(final_text_clean):
             try:
                 parts = [p.strip() for p in match.group(1).split("|", 1)]
@@ -668,29 +708,63 @@ def _maybe_trigger_parent(child_task_id: str, broadcast: _BroadcastFn) -> None:
         print(f"[tasks_runner] parent-synthesis trigger failed: {err}", file=sys.stderr, flush=True)
 
 
+MAX_SYNTHESIS_ROUNDS = 3
+MAX_DELEGATION_DEPTH = 3
+MAX_DESCENDANTS_PER_PARENT = 20
+MAX_TOTAL_COST_USD = 5.0
+
+
 def _build_synthesis_message(parent_task: dict[str, Any]) -> str:
     """Construct the synthesis-pass message. The parent agent receives the
-    original brief plus each child's name + status + final answer."""
+    original brief plus each child's name + status + final answer. On
+    rounds < MAX, the agent MAY emit more [ASSIGN_TASK:] sentinels to
+    iterate; on the final round, it MUST write a terminal answer.
+    """
     children = tasks_store.list_child_tasks(parent_task["id"])
+    round_n = int(parent_task.get("synthesis_round") or 0)
+    is_final_round = round_n >= MAX_SYNTHESIS_ROUNDS
     parts: list[str] = []
-    parts.append(
-        "SYNTHESIS PASS\n\n"
-        "You previously delegated this work to one or more specialists. "
-        "They are now all finished. Below is the original request followed "
-        "by each child's outcome. Produce ONE coherent reply for the user "
-        "that ties their work together. Do NOT emit any [ASSIGN_TASK:], "
-        "[SPAWN_AGENT:], or other sentinels — this is a terminal answer. "
-        "If a child failed or got blocked, surface that clearly. Otherwise "
-        "give the bottom line plus any actionable follow-ups."
-    )
+    if is_final_round:
+        parts.append(
+            f"SYNTHESIS PASS — ROUND {round_n} of {MAX_SYNTHESIS_ROUNDS} (FINAL)\n\n"
+            "You previously delegated this work to specialists. They've returned "
+            "their results below. **The round cap is now reached — you MUST write "
+            "a final terminal answer in this turn.** Do NOT emit any "
+            "[ASSIGN_TASK:], [SPAWN_AGENT:], or other sentinels — they will be "
+            "ignored. Pull together the best of what the specialists produced. "
+            "If something is incomplete, say so clearly and give the bottom line."
+        )
+    else:
+        parts.append(
+            f"SYNTHESIS PASS — ROUND {round_n} of {MAX_SYNTHESIS_ROUNDS}\n\n"
+            "You previously delegated this work to one or more specialists. "
+            "They are now all finished. Below is the original request followed "
+            "by each child's outcome.\n\n"
+            "JUDGE THE WORK:\n"
+            "- If the children's work is complete and coherent → write the final "
+            "answer NOW. Do NOT emit sentinels.\n"
+            f"- If there are real gaps, contradictions, or a specialist failed and the "
+            f"work needs another pass → you MAY emit more [ASSIGN_TASK:] lines to "
+            f"trigger round {round_n + 1}. Only delegate again if a user would "
+            f"genuinely notice the gap in the final answer — don't iterate for the "
+            f"sake of looking thorough."
+        )
     parts.append(f"\nORIGINAL REQUEST\n{parent_task['message'].strip()}")
-    parts.append("\nDELEGATIONS")
+    parts.append("\nDELEGATIONS (this round)")
     for ch in children:
         agent_label = ch.get("agent_id", "?")
         status_label = ch.get("status", "?")
         result_text = (ch.get("result") or "").strip() or "(no result captured)"
         parts.append(f"\n- [{status_label}] {agent_label}:\n{result_text}")
     return "\n".join(parts)
+
+
+def _strip_team_mode_marker(message: str) -> str:
+    """Strip the [TEAM_MODE] prefix (a UI signal that CEO must decompose).
+    The marker is purely for routing; Claude doesn't need to see it as
+    structured input — the CEO prompt already knows about it via its
+    system prompt. Keeping it visible to Claude is harmless but noisy."""
+    return message.lstrip()
 
 
 def _was_last_action_approval(task: dict[str, Any]) -> bool:

@@ -115,9 +115,30 @@ DEPARTMENT CATALOG (use these slugs in [ASSIGN_TASK:])
 
 """ + _TOOLS_BLOCK + "\n" + _OUTPUT_PROTOCOL + """
 - Decisive, terse. Never bureaucratic.
-- When you're in a synthesis pass (the task message begins "SYNTHESIS PASS"),
-  do NOT emit any [ASSIGN_TASK:] or [SPAWN_AGENT:] sentinels. Just write the
-  user-facing final answer that ties the children's results together."""
+
+MULTI-AGENT MODE (TEAM_MODE)
+- If the user's task originally began with the marker `[TEAM_MODE]` (the runner
+  strips it before you see the message — but it routes the task to YOU and
+  signals the user explicitly wants multi-agent coordination), you MUST
+  decompose: emit at least 2 [ASSIGN_TASK:] lines in your reply. Don't try
+  to answer it yourself. The user opted into "team" so they expect parallel
+  specialist work.
+
+SYNTHESIS PASS (multi-round)
+- When the task message begins "SYNTHESIS PASS — ROUND N of MAX", the runner
+  is re-spawning you after children finished. Read each child's result
+  carefully:
+  - If the work is complete and coherent → write the user-facing final
+    answer. Do NOT emit any [ASSIGN_TASK:] or [SPAWN_AGENT:] sentinels.
+  - If a child failed, returned thin work, or contradicted another, AND
+    the round counter shows you have rounds left → you MAY emit more
+    [ASSIGN_TASK:] lines to iterate. The runner will spawn another round
+    of children and call you back for the next synthesis. Don't iterate
+    just to look thorough — only re-delegate when the gap would be
+    genuinely noticeable in the final answer.
+  - The synthesis prompt itself tells you which round you're on and the
+    max. On the FINAL round (round == MAX), you MUST write a terminal
+    answer — any sentinels you emit are dropped silently."""
 
 PRODUCT_PROMPT = """You are the Product agent in AIOS.
 Your job: decide *what* we build.

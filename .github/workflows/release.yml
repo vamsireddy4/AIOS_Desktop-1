@@ -187,3 +187,65 @@ jobs:
             release/*.dmg
             release/latest*.yml
           if-no-files-found: ignore
+
+  # The two parallel Mac matrix jobs (arm64 + x64) each publish their own
+  # latest-mac.yml, and the second one to finish OVERWRITES the first. End
+  # result: the published manifest only lists ONE arch. Apple Silicon users
+  # whose installed app is on x64 (or vice versa) get the wrong zip and
+  # auto-update silently fails. Fix: after both Mac jobs are done, re-download
+  # both arch zips, recompute hashes, and write ONE merged manifest that
+  # lists both arches. electron-updater on each user's machine picks the
+  # correct entry based on the running app's arch.
+  fix-mac-manifest:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+      - name: Merge Mac manifest with both arches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          REPO="${{ github.repository }}"
+          cd /tmp
+          ARM64_ZIP="AIOS-Desktop-${VERSION}-arm64-mac.zip"
+          INTEL_ZIP="AIOS-Desktop-${VERSION}-mac.zip"
+          # Pull both arch zips that were just published. If one arch failed
+          # to build/publish, skip the merge — better to leave the single-arch
+          # manifest than to write a manifest pointing at a missing file.
+          gh release download "$TAG" --repo "$REPO" -p "$ARM64_ZIP" || { echo "::warning::arm64 zip missing, skipping merge"; exit 0; }
+          gh release download "$TAG" --repo "$REPO" -p "$INTEL_ZIP" || { echo "::warning::intel zip missing, skipping merge"; exit 0; }
+          ARM64_HASH=$(openssl dgst -sha512 -binary "$ARM64_ZIP" | openssl base64 -A)
+          INTEL_HASH=$(openssl dgst -sha512 -binary "$INTEL_ZIP" | openssl base64 -A)
+          ARM64_SIZE=$(stat -c%s "$ARM64_ZIP")
+          INTEL_SIZE=$(stat -c%s "$INTEL_ZIP")
+          RELEASE_DATE="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          cat > latest-mac.yml <<EOF
+          version: ${VERSION}
+          files:
+            - url: ${ARM64_ZIP}
+              sha512: ${ARM64_HASH}
+              size: ${ARM64_SIZE}
+            - url: ${INTEL_ZIP}
+              sha512: ${INTEL_HASH}
+              size: ${INTEL_SIZE}
+          path: ${ARM64_ZIP}
+          sha512: ${ARM64_HASH}
+          releaseDate: '${RELEASE_DATE}'
+          EOF
+          echo "--- merged latest-mac.yml ---"
+          cat latest-mac.yml
+          gh release upload "$TAG" latest-mac.yml --clobber --repo "$REPO"

@@ -3109,11 +3109,8 @@ body.is-mac .sidebar-brand {
   margin-bottom: 0;
 }
 
-/* v0.2.37 collapsed the avatar column to 0 width but left the avatar
-   DIV rendered — it overflowed into the message body and looked like
-   "an icon is sitting on top of the text". Fixing properly by hiding
-   the whole meta block on assistant messages. The role label + time
-   were already hidden; this catches the avatar div too. */
+/* Assistant messages: minimalist (Claude.ai-style) — no avatar, no role
+   label, no timestamp. The meta block is hidden entirely. */
 .aios-message.assistant .aios-message-meta {
   display: none;
 }
@@ -3936,6 +3933,144 @@ body.is-mac .sidebar-brand {
   color: var(--ink);
 }
 
+/* ===== Team banner — /team <task> coordinator + parallel specialists. Same
+   visual vocabulary as the goal banner with an additional per-specialist
+   list showing each agent's status (pending / running / done / failed). */
+.aios-team-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  animation: jumpFadeIn 180ms ease;
+}
+.aios-team-banner.status-running,
+.aios-team-banner.status-decomposing,
+.aios-team-banner.status-aggregating {
+  background: var(--sage-soft);
+  border-color: var(--sage-line);
+}
+.aios-team-banner.status-done {
+  background: var(--sage-soft);
+  border-color: var(--sage);
+}
+.aios-team-banner.status-aborted,
+.aios-team-banner.status-error {
+  background: var(--surface-soft);
+  opacity: 0.9;
+}
+.aios-team-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--sage);
+  flex-shrink: 0;
+}
+.aios-team-banner-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aios-team-banner-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.aios-team-banner-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--sage);
+  flex-shrink: 0;
+}
+.aios-team-banner-task {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.aios-team-banner-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.aios-team-banner-specialist {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  min-width: 0;
+}
+.aios-team-banner-specialist-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--gray-500);
+  flex-shrink: 0;
+}
+.aios-team-banner-specialist.status-running .aios-team-banner-specialist-icon {
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+.aios-team-banner-specialist.status-done .aios-team-banner-specialist-icon {
+  background: var(--sage);
+  color: var(--paper);
+}
+.aios-team-banner-specialist.status-failed .aios-team-banner-specialist-icon,
+.aios-team-banner-specialist.status-timeout .aios-team-banner-specialist-icon {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+.aios-team-banner-specialist-name {
+  font-weight: 600;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.aios-team-banner-specialist-task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--ink-soft);
+}
+.aios-team-banner-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.aios-team-banner-error {
+  color: #b91c1c;
+}
+.aios-team-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 /* Queued-message preview strip above the composer. Shows what's about
    to send once the current turn finishes. Each chip is removable. */
 .aios-composer-queue {
@@ -4528,7 +4663,12 @@ body.is-mac .sidebar-brand {
   width: 100%;
   min-height: 32px;
   max-height: 240px;
-  /* When content exceeds max-height, native scrollbar appears so users
+  /* Height is auto-set in JS per-keystroke (see CommandScreen useEffect on
+     [prompt]) so the textarea grows visually with pasted/typed content
+     instead of staying at min-height and scrolling its content inside.
+     Smooth transition makes the growth read as a subtle "extends" rather
+     than a jarring jump.
+     When content exceeds max-height, native scrollbar appears so users
      can see and edit long pasted prompts. Mirror layer syncs scrollTop
      via onScroll handler in CommandScreen.tsx. */
   overflow-y: auto;
@@ -4536,6 +4676,7 @@ body.is-mac .sidebar-brand {
   resize: none;
   border: 0;
   background: transparent;
+  transition: height 120ms ease;
   /* Transparent text — the mirror layer behind paints the visible glyphs and
      applies sage highlighting for @AgentName tokens. The caret stays visible
      via caret-color so the user knows where they're typing. */
@@ -10357,6 +10498,146 @@ aside.aios-sb-v2 .aios-sidebar-settings svg {
   background: rgba(220, 38, 38, 0.08);
   color: var(--danger);
 }
+/* Team strip on parent task cards — shows multi-agent fan-out at a glance. */
+.tasks-v2-card-team-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  background: var(--sage-soft);
+  border: 1px solid var(--sage-line);
+  border-radius: 8px;
+}
+.tasks-v2-card-team-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sage);
+  letter-spacing: 0.02em;
+}
+.tasks-v2-card-team-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.tasks-v2-card-team-specialists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tasks-v2-card-specialist-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.tasks-v2-card-specialist-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gray-400);
+}
+.tasks-v2-card-specialist-pill.tone-completed { background: var(--sage); color: var(--paper); border-color: var(--sage); }
+.tasks-v2-card-specialist-pill.tone-completed .tasks-v2-card-specialist-dot { background: var(--paper); }
+.tasks-v2-card-specialist-pill.tone-running { background: var(--sage-soft); border-color: var(--sage-line); color: var(--sage); }
+.tasks-v2-card-specialist-pill.tone-running .tasks-v2-card-specialist-dot { background: var(--sage); animation: aios-goal-pulse 1.4s ease-in-out infinite; }
+.tasks-v2-card-specialist-pill.tone-failed { background: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.2); color: #b91c1c; }
+.tasks-v2-card-specialist-pill.tone-failed .tasks-v2-card-specialist-dot { background: #b91c1c; }
+
+/* Solo/Team toggle in the Create modal */
+.tasks-v2-mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+.tasks-v2-mode-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--ink);
+  transition: background 100ms ease, border-color 100ms ease;
+}
+.tasks-v2-mode-option:hover { background: var(--surface-soft); }
+.tasks-v2-mode-option.is-active {
+  background: var(--sage-soft);
+  border-color: var(--sage);
+}
+.tasks-v2-mode-option strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tasks-v2-mode-option span {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.tasks-v2-team-hint .tasks-v2-field-hint {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  background: var(--surface-soft);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+/* TaskDetailsModal — round indicator in the sub-tasks header */
+.tasks-v2-subtasks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.tasks-v2-subtasks-round {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--sage-soft);
+  border: 1px solid var(--sage-line);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--sage);
+}
+
+/* Result preview on completed parent cards */
+.tasks-v2-card-result-preview {
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  background: var(--surface-soft);
+  border-left: 2px solid var(--sage);
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.tasks-v2-card-result-preview-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--sage);
+  margin-bottom: 3px;
+}
+
 .tasks-v2-card-summary {
   margin: 0;
   font-size: 12px;

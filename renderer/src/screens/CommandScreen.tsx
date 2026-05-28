@@ -54,6 +54,7 @@ import { track } from "../lib/analytics";
 import { formatRelativeTime } from "../lib/workspace-view";
 import { PanelHeader, StatusBadge } from "../components/ui";
 import { GoalProgressBanner } from "../components/GoalProgressBanner";
+import { TeamProgressBanner } from "../components/TeamProgressBanner";
 import type {
   AgentInfo,
   ChatMessage,
@@ -396,6 +397,8 @@ export function CommandScreen({
   // session is selected OR when a new goal starts (latter handled by the
   // host-event listener below).
   const [goalBannerDismissed, setGoalBannerDismissed] = useState(false);
+  // Same pattern for the team banner.
+  const [teamBannerDismissed, setTeamBannerDismissed] = useState(false);
 
   // Composer slash / @ palette state. `from` is the character offset of the
   // trigger character (the "/" or "@") in the current prompt — we need it so
@@ -563,6 +566,7 @@ export function CommandScreen({
     const sessionMode = (activeSession?.permissionMode as ModeId) ?? "default";
     setMode(sessionMode);
     setGoalBannerDismissed(false);
+    setTeamBannerDismissed(false);
   }, [activeSession?.id]);
 
   function pickMode(id: ModeId) {
@@ -666,6 +670,26 @@ export function CommandScreen({
     }
   }, [prompt]);
 
+  // Auto-grow the textarea height with content. Reset to "auto" first so
+  // scrollHeight reflects the actual content (not the previously-set
+  // explicit height), then clamp to the CSS max-height. Past the cap, the
+  // textarea's overflow-y: auto takes over and a scrollbar appears.
+  // Empty prompt → clear the inline height so CSS min-height (32px) wins.
+  // The mirror layer is `position: absolute; inset: 0` inside the input-line
+  // parent, so it tracks the textarea's height automatically — no need to
+  // set it explicitly.
+  useEffect(() => {
+    const ta = composerRef.current;
+    if (!ta) return;
+    if (!prompt) {
+      ta.style.height = "";
+      return;
+    }
+    const MAX_HEIGHT = 240;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, MAX_HEIGHT)}px`;
+  }, [prompt]);
+
   // Smart auto-scroll. Previous behavior smooth-scrolled to bottom on EVERY
   // message/delta change — even when the user had scrolled UP to read
   // history mid-stream. That yanked them back to the bottom every ~200ms
@@ -705,6 +729,65 @@ export function CommandScreen({
         if (goalState.status === "active" && goalState.turn <= 1) {
           setGoalBannerDismissed(false);
         }
+        return;
+      }
+      if (event.event === "team_progress") {
+        const data = event.data as (import("../types").ActiveTeam & { sessionId?: string }) | undefined;
+        if (!data || !data.sessionId) return;
+        const targetSessionId = data.sessionId;
+        const { sessionId: _strip, ...teamState } = data;
+        onSessionsChange((current) => current.map((s) =>
+          s.id === targetSessionId ? { ...s, activeTeam: teamState as import("../types").ActiveTeam } : s
+        ));
+        // When a fresh team task starts, un-dismiss the banner.
+        if (teamState.phase === "decomposing") {
+          setTeamBannerDismissed(false);
+        }
+        return;
+      }
+      if (event.event === "team_specialist_message") {
+        const data = event.data as {
+          sessionId: string;
+          agentId: string;
+          agentName: string;
+          subtask: string;
+          reply: string;
+          artifacts?: { kind: "plan" | "output"; path: string; filename: string }[];
+        } | undefined;
+        if (!data || !data.sessionId) return;
+        const attachments: import("../types").ChatAttachment[] = (data.artifacts ?? []).map((a) => ({
+          kind: a.kind, path: a.path, filename: a.filename,
+        }));
+        const note: ChatMessage = {
+          id: newId("msg"),
+          role: "assistant",
+          content: `**${data.agentName}** — ${data.subtask}\n\n${data.reply}`,
+          createdAt: new Date().toISOString(),
+          attachments: attachments.length ? attachments : undefined,
+        };
+        onSessionsChange((current) => current.map((s) => {
+          if (s.id !== data.sessionId) return s;
+          const updated = { ...s, messages: [...s.messages, note], updatedAt: new Date().toISOString() };
+          void invoke("save_session", { session: updated }).catch(() => undefined);
+          return updated;
+        }));
+        return;
+      }
+      if (event.event === "team_aggregate_message") {
+        const data = event.data as { sessionId: string; reply: string } | undefined;
+        if (!data || !data.sessionId) return;
+        const note: ChatMessage = {
+          id: newId("msg"),
+          role: "assistant",
+          content: data.reply,
+          createdAt: new Date().toISOString(),
+        };
+        onSessionsChange((current) => current.map((s) => {
+          if (s.id !== data.sessionId) return s;
+          const updated = { ...s, messages: [...s.messages, note], updatedAt: new Date().toISOString() };
+          void invoke("save_session", { session: updated }).catch(() => undefined);
+          return updated;
+        }));
         return;
       }
       if (event.event === "goal_turn_message") {
@@ -773,6 +856,20 @@ export function CommandScreen({
   useEffect(() => {
     if (!busy) composerRef.current?.focus();
   }, [busy, activeSession?.id]);
+
+  // When the active session changes (sidebar pick, "New chat" button, history
+  // open), reset the local `busy` flag. `busy` is a component-level boolean
+  // that bridges the ~50ms gap between optimistic send and first stream chunk
+  // (see comment on the useState above). Without this reset, clicking "New
+  // chat" while the previous session was mid-stream would carry the TRUE
+  // value over — the fresh chat would render with its input disabled even
+  // though it has no in-flight work. The actual in-flight stream from the
+  // previous session keeps running in the background and lands correctly via
+  // the App-level listener; per-session "is this chat working right now"
+  // state is derived from `streamingBusy` which reads messages directly.
+  useEffect(() => {
+    setBusy(false);
+  }, [activeSession?.id]);
 
   // Elapsed-seconds counter for the activity strip. Resets when busy
   // toggles on, ticks every 1s while busy, clears when busy goes false.
@@ -1239,6 +1336,43 @@ export function CommandScreen({
     const trimmed = text.trim();
     if ((!trimmed && attachments.length === 0) || !claude?.found || !activeSession) return;
 
+    // Intercept /team commands BEFORE the queue check. /team <task> spawns
+    // the coordinator + parallel specialists + aggregator flow; /team clear
+    // aborts an in-flight one.
+    if (trimmed.startsWith("/team")) {
+      const rest = trimmed.slice("/team".length).trim();
+      setPrompt("");
+      appendUserNote(trimmed);
+      if (rest === "" || rest === "status") {
+        appendAssistantNote(
+          activeSession.activeTeam
+            ? `Team task in progress: "${activeSession.activeTeam.task}" — phase: ${activeSession.activeTeam.phase}, ${activeSession.activeTeam.specialists.length} specialists.`
+            : "No active team task. Start one with `/team <complex task>` — e.g. `/team plan a launch with landing page, blog, and tweet thread`."
+        );
+        return;
+      }
+      if (rest === "clear" || rest === "stop" || rest === "abort") {
+        try {
+          await invoke("team_abort", { sessionId: activeSession.id });
+          appendAssistantNote("Team task aborted.");
+        } catch (err) {
+          appendAssistantNote(`Couldn't abort the team task: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+      }
+      try {
+        await invoke("team_start", {
+          sessionId: activeSession.id,
+          task: rest,
+          claudePath: claude.path,
+        });
+        appendAssistantNote(`Team task started: "${rest}". Watch the banner above for progress — specialists will post as they finish.`);
+      } catch (err) {
+        appendAssistantNote(`Couldn't start the team task: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
+
     // Intercept /goal commands BEFORE the queue check — these don't go
     // through run_task at all. /goal <condition> starts an autonomous loop;
     // /goal clear stops it; /goal alone reports status.
@@ -1338,6 +1472,19 @@ export function CommandScreen({
       updatedAt: new Date().toISOString()
     };
     onSessionsChange((current) => current.map((session) => (session.id === nextSession.id ? nextSession : session)));
+    // Persist the optimistic user message immediately so it survives app
+    // crashes / reloads before the stream completes. Strip `streamId` from
+    // all messages BEFORE writing — streamId is a runtime-only correlation
+    // token tying an in-memory message to a live Python subprocess. If we
+    // persisted it, a page reload or refresh that re-hydrated from SQLite
+    // would resurrect a "stuck thinking" assistant bubble whose streamId
+    // no longer matches any live stream — the typing indicator would hang
+    // forever. Fire-and-forget — sub-10ms SQLite write.
+    const persistable = {
+      ...nextSession,
+      messages: nextSession.messages.map(({ streamId: _stream, ...m }) => m),
+    };
+    void invoke("save_session", { session: persistable }).catch(() => undefined);
     setPrompt("");
     setAttachments([]);
     setBusy(true);
@@ -1563,6 +1710,7 @@ export function CommandScreen({
       { id: "plan", label: "/plan", hint: "Generate a practical plan from my workspace", icon: ClipboardList, prompt: "Create a practical plan from my current AIOS workspace context. Group by 'this week', 'this month', and 'this quarter'. Keep each item concrete and owned by me." },
       { id: "goals", label: "/goals", hint: "Surface your top goals from the context layer", icon: Target, prompt: "Read my context files and tell me the top 3 goals I'm working toward in the next 90 days, in order of urgency." },
       { id: "goal", label: "/goal", hint: "Run autonomously until a condition is met (Claude Code-style)", icon: Target, prompt: "/goal " },
+      { id: "team", label: "/team", hint: "Coordinate parallel specialists for a complex task (OpenClaw-style)", icon: Users, prompt: "/team " },
       { id: "audit", label: "/audit", hint: "Audit tasks, blockers, and progress", icon: ListChecks, prompt: "Audit my current Tasks (Kanban) and AutoTasks. Tell me what's stuck, what's at risk, and what's quietly succeeding. Be blunt." },
       { id: "brief-today", label: "/today", hint: "Generate today's daily brief", icon: Sun, prompt: "Generate today's daily brief: priorities, blockers, what's due, what's at risk. Pull from my workspace and recent activity. Tight and skimmable." },
       { id: "help", label: "/help", hint: "Show what AIOS can do for you", icon: HelpCircle, prompt: "Explain what AIOS Desktop can do for me right now given my current connectors, agents, and workspace context. Give me 5 concrete things I should try this week." },
@@ -1930,6 +2078,25 @@ export function CommandScreen({
             </div>
           </div>
 
+          {activeSession?.activeTeam && !teamBannerDismissed ? (
+            <TeamProgressBanner
+              team={activeSession.activeTeam}
+              onAbort={() => {
+                void invoke("team_abort", { sessionId: activeSession.id }).catch(() => undefined);
+              }}
+              onDismiss={() => {
+                setTeamBannerDismissed(true);
+                // Also clear the activeTeam from the session entirely so the
+                // banner doesn't pop back on app restart.
+                onSessionsChange((current) => current.map((s) => {
+                  if (s.id !== activeSession.id) return s;
+                  const updated = { ...s, activeTeam: null };
+                  void invoke("save_session", { session: updated }).catch(() => undefined);
+                  return updated;
+                }));
+              }}
+            />
+          ) : null}
           {activeSession?.activeGoal && !goalBannerDismissed ? (
             <GoalProgressBanner
               goal={activeSession.activeGoal}
@@ -1946,7 +2113,19 @@ export function CommandScreen({
                   claudeSessionId: activeSession.claudeSessionId ?? null,
                 }).catch(() => undefined);
               }}
-              onDismiss={() => setGoalBannerDismissed(true)}
+              onDismiss={() => {
+                setGoalBannerDismissed(true);
+                // Clear activeGoal from the session entirely so dismissal
+                // persists across app restart (otherwise the banner pops back
+                // every time the user reopens AIOS because the goal record is
+                // still on the SQLite session row).
+                onSessionsChange((current) => current.map((s) => {
+                  if (s.id !== activeSession.id) return s;
+                  const updated = { ...s, activeGoal: null };
+                  void invoke("save_session", { session: updated }).catch(() => undefined);
+                  return updated;
+                }));
+              }}
             />
           ) : null}
 

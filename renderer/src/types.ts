@@ -119,6 +119,9 @@ export type AiosCommand =
   | "goal_start"
   | "goal_abort"
   | "goal_status"
+  | "team_start"
+  | "team_abort"
+  | "team_status"
   | "list_tasks"
   | "get_task"
   | "create_task"
@@ -173,6 +176,7 @@ export interface TaskInfo {
   completed_at: string | null;
   parent_task_id: string | null;
   synthesis_pass: boolean;
+  synthesis_round?: number;
 }
 
 export interface DailyBrief {
@@ -375,6 +379,28 @@ export interface ActiveGoal {
   status: GoalStatus;
 }
 
+export type TeamPhase = "decomposing" | "running" | "aggregating" | "done" | "aborted" | "error";
+export type SpecialistStatus = "pending" | "running" | "done" | "failed" | "timeout";
+
+export interface SpecialistResult {
+  agentId: string;
+  agentName: string;
+  subtask: string;
+  status: SpecialistStatus;
+  reason?: string; // why this specialist was picked (from coordinator)
+  durationMs?: number;
+}
+
+export interface ActiveTeam {
+  task: string;
+  phase: TeamPhase;
+  specialists: SpecialistResult[];
+  startedAt: string;
+  tokensSpent: number;
+  costUsd?: number;
+  errorMessage?: string;
+}
+
 export interface ChatSession {
   id: string;
   title: string;
@@ -383,6 +409,7 @@ export interface ChatSession {
   claudeSessionId?: string | null;
   permissionMode?: ChatPermissionMode;
   activeGoal?: ActiveGoal | null;
+  activeTeam?: ActiveTeam | null;
 }
 
 export interface WorkspaceEntry {

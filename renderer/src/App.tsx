@@ -89,12 +89,35 @@ import "./styles.css";
 // The fix: for each session present in BOTH lists, keep whichever has MORE
 // messages. In-memory > DB means a chat is in-flight; preserve it.
 // In-memory == DB or in-memory < DB means DB is the source of truth; use it.
+// Strip runtime-only fields from messages loaded from SQLite. `streamId`
+// correlates an in-memory assistant bubble to a live Python subprocess; if
+// it leaks onto disk (older bug — fixed by stripping before save_session)
+// and gets re-hydrated, the App-level stream listener can never match it
+// because the original subprocess is dead, so the typing indicator hangs
+// forever. Cleaning on read is belt-and-suspenders self-heal for any rows
+// that were written with streamId before the fix landed.
+function sanitizeSessionFromDisk(session: ChatSession): ChatSession {
+  if (!session.messages.some((m) => m.streamId)) return session;
+  return {
+    ...session,
+    messages: session.messages.map((m) => (m.streamId ? { ...m, streamId: null } : m)),
+  };
+}
+
 function mergeSessions(current: ChatSession[], fresh: ChatSession[]): ChatSession[] {
-  const freshById = new Map(fresh.map((s) => [s.id, s]));
+  const cleanFresh = fresh.map(sanitizeSessionFromDisk);
+  const freshById = new Map(cleanFresh.map((s) => [s.id, s]));
   const merged = current.map((c) => {
     const f = freshById.get(c.id);
     if (!f) return c;
-    const picked = c.messages.length > f.messages.length ? c : f;
+    // Streaming guard: if ANY message in memory still has an active streamId,
+    // a chat turn is in flight (optimistic user message + empty assistant
+    // bubble waiting for chunks). The DB snapshot can't possibly contain
+    // those rows yet — save_session only fires on stream completion. Prefer
+    // in-memory unconditionally to protect the in-flight turn from getting
+    // clobbered by a same-count merge.
+    const inFlight = c.messages.some((m) => m.streamId);
+    const picked = inFlight || c.messages.length > f.messages.length ? c : f;
     // Goal state: prefer the LIVE in-memory activeGoal when it's "active"
     // (the orchestrator is feeding goal_progress events; the DB row is at
     // most one turn stale). Without this, a periodic get_sessions refresh
@@ -107,8 +130,9 @@ function mergeSessions(current: ChatSession[], fresh: ChatSession[]): ChatSessio
     return picked;
   });
   // Add any sessions that exist in DB but not in memory yet (e.g. auto-task
-  // created one in the background).
-  for (const f of fresh) {
+  // created one in the background). Use cleanFresh so any DB-resurrected
+  // streamId on a session we haven't seen before is also stripped.
+  for (const f of cleanFresh) {
     if (!merged.some((s) => s.id === f.id)) merged.push(f);
   }
   return merged;
@@ -1011,8 +1035,20 @@ function App() {
 
         {error ? <div className="banner banner-danger">{error}</div> : null}
 
-        {screen === "command" && !setupRequired ? (
-          <div className="screen-enter">
+        {/* CommandScreen stays ALWAYS-MOUNTED while not in setup so that
+            navigating to Tasks/Connectors/etc. mid-stream doesn't unmount
+            it. Unmounting would: (a) lose the optimistic user message before
+            save_session fires, leaving the 60s mergeSessions poll to clobber
+            it with the stale DB snapshot, (b) drop the chat input draft,
+            (c) interrupt the streaming animation. The `display:none` toggle
+            preserves React state, DOM, focus, and scroll position. Other
+            screens stay conditional — only chat has in-flight state to
+            protect. */}
+        {!setupRequired ? (
+          <div
+            className="screen-enter"
+            style={{ display: screen === "command" ? undefined : "none" }}
+          >
           <CommandScreen
             claude={claude}
             onboarding={onboarding}

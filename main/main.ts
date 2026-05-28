@@ -15,6 +15,7 @@ import { ensureRuntimeWorkspace, getSourceStarterKit, backfillStarterKit } from 
 import { startWhatsApp, stopWhatsApp, getWhatsAppStatus, autoStartWhatsApp } from "./whatsapp-scanner";
 import { startVoiceLoop, abortVoiceLoop, getVoiceState } from "./voice-control";
 import { startGoalLoop, abortGoalLoop, isGoalRunning } from "./goal-orchestrator";
+import { startTeamTask, abortTeamTask, isTeamRunning } from "./team-orchestrator";
 import {
   installControlPopupHooks,
   toggleControlPopup,
@@ -128,6 +129,9 @@ const mainHandledCommands = new Set<AiosCommand>([
   "goal_start",
   "goal_abort",
   "goal_status",
+  "team_start",
+  "team_abort",
+  "team_status",
   "control_panel_toggle",
   "control_panel_open",
   "control_panel_close",
@@ -699,6 +703,59 @@ async function handleMainCommand(cmd: AiosCommand, args: Record<string, unknown>
     const sessionId = String(args.sessionId ?? "");
     if (!sessionId) throw new Error("sessionId is required");
     return { active: isGoalRunning(sessionId) };
+  }
+
+  if (cmd === "team_start") {
+    const sessionId = String(args.sessionId ?? "");
+    const task = String(args.task ?? "").trim();
+    const claudePath = String(args.claudePath ?? "");
+    if (!sessionId) throw new Error("sessionId is required");
+    if (!task) throw new Error("task is required");
+    if (!claudePath) throw new Error("claudePath is required");
+    // Pull the agent directory so the coordinator knows what specialists
+    // exist + their effective_prompt. Renderer already has list_agents
+    // wired; we just call Python directly here.
+    let agents: any[] = [];
+    try {
+      const res = (await host.invoke("list_agents", {})) as any;
+      const data = res?.data ?? res;
+      agents = Array.isArray(data?.agents) ? data.agents : [];
+    } catch (err) {
+      log("team", "list_agents failed", { error: err instanceof Error ? err.message : String(err) });
+    }
+    const summarized = agents.map((a: any) => ({
+      id: String(a?.id ?? ""),
+      name: String(a?.name ?? ""),
+      role: String(a?.role ?? ""),
+      effective_prompt: String(a?.effective_prompt ?? a?.prompt ?? ""),
+    })).filter((a) => a.id && a.name);
+    if (summarized.length === 0) {
+      throw new Error("No agents available to spawn as specialists. Configure agents on the Agents page first.");
+    }
+    startTeamTask({
+      sessionId,
+      task,
+      agents: summarized,
+      claudePath,
+      host,
+      broadcast: broadcastHostEvent,
+    }).catch((err) => {
+      log("team", "task failed", { error: err instanceof Error ? err.message : String(err) });
+    });
+    return { ok: true, accepted: true };
+  }
+
+  if (cmd === "team_abort") {
+    const sessionId = String(args.sessionId ?? "");
+    if (!sessionId) throw new Error("sessionId is required");
+    await abortTeamTask(sessionId, broadcastHostEvent);
+    return { ok: true };
+  }
+
+  if (cmd === "team_status") {
+    const sessionId = String(args.sessionId ?? "");
+    if (!sessionId) throw new Error("sessionId is required");
+    return { active: isTeamRunning(sessionId) };
   }
 
   if (cmd === "control_panel_toggle") {

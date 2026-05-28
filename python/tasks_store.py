@@ -37,7 +37,7 @@ _TASK_COLUMNS = (
     "id, name, message, agent_id, priority, status, result_json, "
     "narrative_json, claude_session_id, blocked_reason, needs_connector, "
     "created_at, updated_at, started_at, completed_at, "
-    "parent_task_id, synthesis_pass"
+    "parent_task_id, synthesis_pass, synthesis_round"
 )
 
 
@@ -68,6 +68,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "completed_at": row["completed_at"],
         "parent_task_id": row["parent_task_id"],
         "synthesis_pass": bool(row["synthesis_pass"]) if row["synthesis_pass"] is not None else False,
+        "synthesis_round": int(row["synthesis_round"]) if row["synthesis_round"] is not None else 0,
     }
 
 
@@ -95,8 +96,8 @@ def create_task(
             "(id, name, message, agent_id, priority, status, result_json, "
             " narrative_json, claude_session_id, blocked_reason, needs_connector, "
             " created_at, updated_at, started_at, completed_at, "
-            " parent_task_id, synthesis_pass) "
-            "VALUES (?, ?, ?, ?, ?, 'pending', NULL, '[]', NULL, NULL, NULL, ?, ?, NULL, NULL, ?, 0)",
+            " parent_task_id, synthesis_pass, synthesis_round) "
+            "VALUES (?, ?, ?, ?, ?, 'pending', NULL, '[]', NULL, NULL, NULL, ?, ?, NULL, NULL, ?, 0, 0)",
             (
                 task_id,
                 display_name,
@@ -370,10 +371,13 @@ def maybe_trigger_parent_synthesis(child_task_id: str) -> bool:
     if any(s["status"] not in TERMINAL_STATUSES for s in siblings):
         return False
     # All children terminal. Re-queue the parent for its synthesis pass.
+    # synthesis_round bumps every time we re-queue (so round 1, 2, 3, ...
+    # as the parent iterates with new sub-task spawns in synthesis).
     now = workspace.utc_now()
     with closing(workspace.connect()) as conn:
         cur = conn.execute(
             "UPDATE tasks SET status = 'pending', synthesis_pass = 1, "
+            "synthesis_round = synthesis_round + 1, "
             "started_at = NULL, updated_at = ? "
             "WHERE id = ? AND status = 'awaiting_children'",
             (now, parent_id),
@@ -383,6 +387,56 @@ def maybe_trigger_parent_synthesis(child_task_id: str) -> bool:
             # Race: somebody else flipped it already. Harmless.
             return False
     return True
+
+
+def list_descendant_tasks(parent_id: str) -> list[dict[str, Any]]:
+    """Recursively gather all descendants of a parent task (children +
+    grandchildren + ...). Used by recursive cancel + cost summation +
+    depth checks. Iterative BFS to avoid Python recursion limits on
+    pathological chains. Hard ceiling at 200 nodes to prevent runaway."""
+    seen: set[str] = set()
+    descendants: list[dict[str, Any]] = []
+    queue: list[str] = [parent_id]
+    while queue and len(seen) < 200:
+        cur_id = queue.pop(0)
+        if cur_id in seen:
+            continue
+        seen.add(cur_id)
+        children = list_child_tasks(cur_id)
+        for child in children:
+            descendants.append(child)
+            queue.append(child["id"])
+    return descendants
+
+
+def get_task_depth(task_id: str) -> int:
+    """Compute the delegation depth of a task: 0 = top-level, 1 = child of
+    a top-level task, 2 = grandchild, etc. Walks up the parent_task_id
+    chain. Hard ceiling at 10 hops to avoid infinite loops from bad data."""
+    depth = 0
+    cur_id = task_id
+    for _ in range(10):
+        task = get_task(cur_id)
+        if not task or not task.get("parent_task_id"):
+            return depth
+        depth += 1
+        cur_id = task["parent_task_id"]
+    return depth
+
+
+def cancel_task_recursive(task_id: str) -> dict[str, Any]:
+    """Cancel a task AND all its in-flight descendants. Used when the user
+    cancels a parent of a multi-agent fan-out — we don't want orphan child
+    Claude processes left running. Only cancels children that aren't already
+    terminal (completed/failed/cancelled stay where they are)."""
+    descendants = list_descendant_tasks(task_id)
+    for child in descendants:
+        if child["status"] not in TERMINAL_STATUSES:
+            try:
+                update_task_status(child["id"], "cancelled", blocked_reason="parent cancelled")
+            except Exception:
+                pass
+    return cancel_task(task_id)
 
 
 def delete_task(task_id: str) -> bool:

@@ -326,7 +326,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             started_at TEXT,
             completed_at TEXT,
             parent_task_id TEXT,
-            synthesis_pass INTEGER NOT NULL DEFAULT 0
+            synthesis_pass INTEGER NOT NULL DEFAULT 0,
+            synthesis_round INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE INDEX IF NOT EXISTS idx_tasks_status_priority
@@ -361,6 +362,11 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN parent_task_id TEXT")
     if task_cols and "synthesis_pass" not in task_cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN synthesis_pass INTEGER DEFAULT 0")
+    if task_cols and "synthesis_round" not in task_cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN synthesis_round INTEGER NOT NULL DEFAULT 0")
+        # Backfill: existing legacy "in synthesis" rows (synthesis_pass=1) move
+        # to round 1 so they don't suddenly look like round 0 on the UI.
+        conn.execute("UPDATE tasks SET synthesis_round = synthesis_pass WHERE synthesis_round = 0 AND synthesis_pass > 0")
     conn.commit()
 
 

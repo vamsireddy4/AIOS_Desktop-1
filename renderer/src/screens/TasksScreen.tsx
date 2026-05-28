@@ -84,6 +84,11 @@ export function TasksScreen({ onNavigate }: { onNavigate?: (screen: import("../u
   const [newMessage, setNewMessage] = useState("");
   const [newPriority, setNewPriority] = useState(3);
   const [newAgentId, setNewAgentId] = useState("ceo");
+  // Team mode: forces CEO routing with explicit multi-agent decomposition.
+  // When on, the message gets prefixed with [TEAM_MODE] (a UI signal the
+  // runner strips before passing to Claude — CEO's system prompt recognizes
+  // it and MUST emit ≥2 [ASSIGN_TASK:] lines).
+  const [newTeamMode, setNewTeamMode] = useState(false);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTask, setDetailsTask] = useState<TaskInfo | null>(null);
@@ -144,16 +149,21 @@ export function TasksScreen({ onNavigate }: { onNavigate?: (screen: import("../u
     if (!message) return;
     setSaving(true);
     try {
+      // Team mode → force CEO + prepend [TEAM_MODE] marker. CEO's system
+      // prompt sees the marker and MUST decompose into ≥2 specialists.
+      const finalAgentId = newTeamMode ? "ceo" : newAgentId;
+      const finalMessage = newTeamMode ? `[TEAM_MODE] ${message}` : message;
       await invoke<TaskInfo>("create_task", {
         name: `Task: ${message.slice(0, 60)}${message.length > 60 ? "…" : ""}`,
-        message,
-        agentId: newAgentId,
+        message: finalMessage,
+        agentId: finalAgentId,
         priority: Math.max(1, Math.min(5, Number(newPriority) || 3)),
       });
       setCreateOpen(false);
       setNewMessage("");
       setNewPriority(3);
       setNewAgentId("ceo");
+      setNewTeamMode(false);
       void refresh();
     } catch (err) {
       console.error("Failed to create task:", err);
@@ -333,6 +343,8 @@ export function TasksScreen({ onNavigate }: { onNavigate?: (screen: import("../u
           setNewMessage={setNewMessage}
           newPriority={newPriority}
           setNewPriority={setNewPriority}
+          teamMode={newTeamMode}
+          setTeamMode={setNewTeamMode}
           saving={saving}
           onCancel={() => setCreateOpen(false)}
           onCreate={handleCreateTask}
@@ -406,12 +418,19 @@ function KanbanView({
                   const parent = task.parent_task_id
                     ? tasks.find((t) => t.id === task.parent_task_id)
                     : null;
+                  // For top-level parent tasks, find their child tasks so
+                  // the card can render the multi-agent team strip.
+                  const children = !task.parent_task_id
+                    ? tasks.filter((t) => t.parent_task_id === task.id)
+                    : [];
                   return (
                     <TaskCard
                       key={task.id}
                       task={task}
                       agentName={agentNameById(agents, task.agent_id)}
                       parentAgentName={parent ? agentNameById(agents, parent.agent_id) : null}
+                      children={children}
+                      agents={agents}
                       onClick={() => onOpen(task)}
                     />
                   );
@@ -429,14 +448,26 @@ function TaskCard({
   task,
   agentName,
   parentAgentName,
+  children,
+  agents,
   onClick
 }: {
   task: TaskInfo;
   agentName: string;
   parentAgentName: string | null;
+  children?: TaskInfo[];
+  agents?: AgentInfo[];
   onClick: () => void;
 }) {
   const bucket = statusBucket(task.status);
+  const hasTeam = (children?.length ?? 0) > 0;
+  const round = Math.max(1, Number(task.synthesis_round) || 1);
+  const doneCount = (children ?? []).filter((c) =>
+    c.status === "completed" || c.status === "failed" || c.status === "cancelled"
+  ).length;
+  // Cap the displayed pill row at 8; show +N for the overflow.
+  const visibleChildren = (children ?? []).slice(0, 8);
+  const overflowCount = (children?.length ?? 0) - visibleChildren.length;
   return (
     <article className={`tasks-v2-card tone-${bucket}`} onClick={onClick}>
       <h4 className="tasks-v2-card-title">{task.name}</h4>
@@ -444,6 +475,35 @@ function TaskCard({
         <p className="tasks-v2-card-lineage">↳ from {parentAgentName}</p>
       )}
       <p className="tasks-v2-card-summary">{summarizeTaskNote(task)}</p>
+      {hasTeam ? (
+        <div className="tasks-v2-card-team-strip">
+          <span className="tasks-v2-card-team-pill">
+            <span className="tasks-v2-card-team-icon" aria-hidden="true">⚙</span>
+            Round {round} · {doneCount} / {children?.length ?? 0} done
+          </span>
+          <div className="tasks-v2-card-team-specialists">
+            {visibleChildren.map((c) => {
+              const childBucket = statusBucket(c.status);
+              const childName = agents ? agentNameById(agents, c.agent_id) : c.agent_id;
+              return (
+                <span key={c.id} className={`tasks-v2-card-specialist-pill tone-${childBucket}`} title={childName}>
+                  <span className="tasks-v2-card-specialist-dot" aria-hidden="true" />
+                  {childName}
+                </span>
+              );
+            })}
+            {overflowCount > 0 ? (
+              <span className="tasks-v2-card-specialist-pill tone-queued">+{overflowCount}</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {hasTeam && task.status === "completed" && task.result ? (
+        <div className="tasks-v2-card-result-preview">
+          <span className="tasks-v2-card-result-preview-label">Synthesized result</span>
+          {task.result.trim().slice(0, 160)}{task.result.trim().length > 160 ? "…" : ""}
+        </div>
+      ) : null}
       <div className="tasks-v2-card-foot">
         <div className="tasks-v2-card-assignee">
           <span className="tasks-v2-avatar" aria-hidden="true">
@@ -466,6 +526,8 @@ function CreateTaskModal({
   setNewMessage,
   newPriority,
   setNewPriority,
+  teamMode,
+  setTeamMode,
   saving,
   onCancel,
   onCreate
@@ -477,6 +539,8 @@ function CreateTaskModal({
   setNewMessage: (s: string) => void;
   newPriority: number;
   setNewPriority: (n: number) => void;
+  teamMode: boolean;
+  setTeamMode: (b: boolean) => void;
   saving: boolean;
   onCancel: () => void;
   onCreate: () => void;
@@ -496,21 +560,58 @@ function CreateTaskModal({
         </header>
 
         <div className="detail-modal-body tasks-v2-modal-body">
-          <label className="tasks-v2-field">
-            <span className="tasks-v2-field-label">Assign to</span>
-            <select
-              className="tasks-v2-field-input"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              disabled={saving}
-            >
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} — {a.role}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="tasks-v2-field">
+            <span className="tasks-v2-field-label">Mode</span>
+            <div className="tasks-v2-mode-toggle" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                className={`tasks-v2-mode-option ${!teamMode ? "is-active" : ""}`}
+                onClick={() => setTeamMode(false)}
+                disabled={saving}
+              >
+                <strong>Solo</strong>
+                <span>One agent works on it</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={`tasks-v2-mode-option ${teamMode ? "is-active" : ""}`}
+                onClick={() => setTeamMode(true)}
+                disabled={saving}
+              >
+                <strong>Team</strong>
+                <span>CEO routes to multiple specialists in parallel</span>
+              </button>
+            </div>
+          </div>
+
+          {!teamMode ? (
+            <label className="tasks-v2-field">
+              <span className="tasks-v2-field-label">Assign to</span>
+              <select
+                className="tasks-v2-field-input"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                disabled={saving}
+              >
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} — {a.role}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="tasks-v2-field tasks-v2-team-hint">
+              <span className="tasks-v2-field-label">Routing</span>
+              <p className="tasks-v2-field-hint">
+                CEO will decompose into sub-tasks, assign each to the right specialist,
+                run them in parallel, and synthesize a final answer. Up to 3 rounds if
+                needed for big tasks.
+              </p>
+            </div>
+          )}
 
           <label className="tasks-v2-field">
             <span className="tasks-v2-field-label">Task instructions</span>
@@ -671,9 +772,18 @@ function TaskDetailsModal({
 
           {childTasks.length > 0 && (
             <section className="tasks-v2-subtasks">
-              <span className="eyebrow">Delegated sub-tasks ({childTasks.length})</span>
+              <div className="tasks-v2-subtasks-head">
+                <span className="eyebrow">Delegated sub-tasks ({childTasks.length})</span>
+                {(task.synthesis_round || 0) > 0 ? (
+                  <span className="tasks-v2-subtasks-round">
+                    Synthesis round {task.synthesis_round} of 3
+                  </span>
+                ) : null}
+              </div>
               <div className="tasks-v2-subtasks-list">
-                {childTasks.map((child) => {
+                {[...childTasks].sort((a, b) =>
+                  (a.created_at || "").localeCompare(b.created_at || "")
+                ).map((child) => {
                   const childBucket = statusBucket(child.status);
                   return (
                     <button
