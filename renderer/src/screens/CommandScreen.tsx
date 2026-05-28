@@ -1502,13 +1502,28 @@ export function CommandScreen({
     } catch (error) {
       // Cancelled streams come back as CLAUDE_CANCELLED — render a soft
       // "Cancelled." line, not a scary "Claude Code failed: ..." error.
+      // CLAUDE_AUTH_REQUIRED means the Claude CLI's saved token expired;
+      // render a re-login chip instead of dumping the 401 JSON at the user.
       const raw = error instanceof Error ? error.message : String(error);
       const isCancelled = /CLAUDE_CANCELLED|Cancelled\./i.test(raw);
+      const isAuthError =
+        /CLAUDE_AUTH_REQUIRED/i.test(raw) ||
+        /invalid authentication credentials/i.test(raw) ||
+        /please run \/login/i.test(raw);
+      let content: string;
+      if (isCancelled) {
+        content = "Cancelled.";
+      } else if (isAuthError) {
+        content = "Your Claude session has expired. Re-login to continue, then send your message again.";
+      } else {
+        content = `Claude Code failed: ${raw}`;
+      }
       const assistant: ChatMessage = {
         id: activeStreamRef.current?.assistantId ?? newId("msg"),
         role: "assistant",
-        content: isCancelled ? "Cancelled." : `Claude Code failed: ${raw}`,
-        createdAt: new Date().toISOString()
+        content,
+        createdAt: new Date().toISOString(),
+        reloginPrompt: isAuthError || undefined
       };
       await saveUpdatedSession({
         ...nextSession,
@@ -2109,6 +2124,29 @@ export function CommandScreen({
                         onClick={() => onNavigate("connectors")}
                       >
                         Connect
+                      </button>
+                    </div>
+                  ) : null}
+                  {message.role === "assistant" && message.reloginPrompt ? (
+                    <div className="aios-connect-card" data-testid="relogin-chip">
+                      <span className="aios-connect-card-icon"><Plug size={14} /></span>
+                      <div className="aios-connect-card-body">
+                        <strong>Re-login Claude</strong>
+                        <p>Copies <code>claude /login</code> to your clipboard and opens Terminal. Paste, hit return, finish sign-in in the browser, then re-send your message.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="button button-primary compact"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText("claude /login");
+                          } catch {}
+                          try {
+                            await invoke("open_claude_login_terminal", {});
+                          } catch {}
+                        }}
+                      >
+                        Re-login
                       </button>
                     </div>
                   ) : null}

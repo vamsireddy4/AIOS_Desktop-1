@@ -341,12 +341,26 @@ def run_claude_stream(
     stderr = started.stderr.read().strip() if started.stderr else ""
     return_code = started.wait(timeout=timeout)
     if return_code != 0:
-        # Cancelled streams exit non-zero (SIGTERM = exit code -15 on POSIX,
-        # or various on Windows). Surface a clean cancel error instead of
-        # the raw "Claude exited with code -15" noise.
-        if return_code in (-15, 15, -9, 9, 1):
+        # Real cancellation = SIGTERM (-15 POSIX / 15 Win) or SIGKILL (-9 / 9).
+        # Exit code 1 used to live in this set, but it's the generic failure
+        # code (auth, missing CLI, malformed args, API errors) — calling it
+        # "Cancelled." hides every real diagnostic from the user.
+        if return_code in (-15, 15, -9, 9):
             raise HostError("CLAUDE_CANCELLED", "Cancelled.")
-        raise HostError("CLAUDE_FAILED", stderr or f"Claude exited with code {return_code}")
+        # Prefer the structured result message ("API Error: 401 ... /login")
+        # over raw stderr; fall back to stderr; then a generic exit-code msg.
+        result_msg = ""
+        if isinstance(final, dict):
+            result_msg = str(final.get("result") or "").strip()
+        message = result_msg or stderr or f"Claude exited with code {return_code}"
+        lowered = message.lower()
+        if (
+            "invalid authentication credentials" in lowered
+            or "please run /login" in lowered
+            or ("401" in message and "auth" in lowered)
+        ):
+            raise HostError("CLAUDE_AUTH_REQUIRED", message)
+        raise HostError("CLAUDE_FAILED", message)
     if not final:
         return {"response": streamed_text, "stderr": stderr, "workspaceRoot": cwd, "command": command[:6]}
     if final.get("is_error"):
@@ -529,6 +543,10 @@ def _build_composio_system_prompt() -> str:
             "• Never ask the user whether they have one of these services "
             "connected — the list above is authoritative. Never ask which "
             "account; the email/handle in parentheses IS the account.\n"
+            "• MEMORY OVERRIDE: this list is REFRESHED every turn. If an earlier "
+            "message in this conversation asked the user about a connector that "
+            "now appears above, they have connected it since — DO NOT ask again. "
+            "Proceed with the action using that connector immediately.\n"
             "• If the user asks for a capability and the right connector is in the "
             "allowed list but NOT connected, say: 'That's available — open the "
             "Connectors page and connect <Service> first.' Then stop. Never "

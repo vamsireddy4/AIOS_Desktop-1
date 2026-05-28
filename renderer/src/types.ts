@@ -352,6 +352,12 @@ export interface ChatMessage {
   // chip — click navigates to Connectors so the user can complete OAuth
   // without manually hunting the page.
   connectRequest?: { service: string };
+  // When set, the Claude CLI's saved OAuth token is invalid (401 / "Please
+  // run /login"). Renderer shows a "Re-login Claude" chip that copies the
+  // `claude /login` command to the clipboard and tries to open Terminal so
+  // the user can paste + run it. Re-sending the message after re-login uses
+  // the same session — no app restart.
+  reloginPrompt?: boolean;
   // When set, this assistant message was produced in Plan mode and Claude
   // emitted an ExitPlanMode tool call. Renderer renders a Plan card with
   // Accept / Reject buttons instead of a normal markdown bubble. Accepting
