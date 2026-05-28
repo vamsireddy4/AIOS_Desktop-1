@@ -245,3 +245,18 @@ releases:
       - mac-update-applications-check
       - github-url-fallback-fix
     notes: First bundle release out of the consolidated everyai-com/AIOS_Desktop pipeline. Mac auto-update is now reliable for users who have the app in /Applications (a one-time dialog prompts them to move it on first launch if not). Headline new feature is /goal — Claude Code-style autonomous loop with Haiku verifier and clickable artifact chips per turn.
+
+  - tag: v0.3.0
+    features:
+      - cancelled-error-mislabel-fix
+      - relogin-chip-on-401
+      - connector-label-memory-override
+      - context-os-reads-imports-first
+      - haiku-default-model
+    notes: |
+      Bundle 1 release — first under the new "5-10 fixes per bundle, themed" cadence (see plans/2026-05-28-bundled-release-roadmap.md in the workspace). Theme: install + auth experience. Five related improvements:
+      (1) host.py no longer treats exit code 1 as "Cancelled." — real errors (auth failures, missing CLI, API errors) now surface their actual message instead of being silently mislabeled.
+      (2) When Claude CLI returns 401 / "Please run /login", the chat shows a Re-login chip that copies `claude /login` to clipboard and opens Terminal — no more raw JSON in the chat.
+      (3) Composio system prompt strengthened with a "memory override" clause: if an earlier turn asked about a connector that now appears in the connected list, Claude is told explicitly to proceed without re-asking. Kills the "do you have a GitHub account?" amnesia.
+      (4) ContextOS install.md gets a new Step 0 — if context/import/ has files, read them all first, only ask about gaps. The A/B/C SCOPING menu only appears when the import folder is empty.
+      (5) Default chat model flipped from "default" to Haiku 4.5. Returning users with a persisted preference keep their choice. Speed is the #1 churn theme — Haiku at 1-3s round-trip beats Sonnet at 5-15s for the first-10-minute experience.
