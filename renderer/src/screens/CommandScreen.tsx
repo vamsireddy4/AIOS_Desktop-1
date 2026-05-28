@@ -186,13 +186,14 @@ const starterPrompts = [
 
 // Model picker options. "default" omits --model from the spawn so Claude CLI
 // uses whatever the user has configured. The other three pass the short alias
-// that Claude Code CLI accepts. Haiku is the AIOS default — speed beats
-// smarts on the first 10 minutes, which is when users churn. Sonnet/Opus
-// remain one click away in the pill.
+// that Claude Code CLI accepts. Opus is the AIOS default — smartest model
+// produces the best demos and the best work product, which matters more
+// than raw speed for AIOS's positioning. Sonnet/Haiku remain one click
+// away in the pill for when speed beats depth.
 const CHAT_MODELS = [
-  { id: "haiku",   label: "Haiku 4.5",   description: "Fastest · the AIOS default" },
-  { id: "sonnet",  label: "Sonnet 4.6",  description: "Balanced · for complex reasoning" },
-  { id: "opus",    label: "Opus 4.7",    description: "Smartest · slowest, most capable" },
+  { id: "opus",    label: "Opus 4.7",    description: "Smartest · the AIOS default" },
+  { id: "sonnet",  label: "Sonnet 4.6",  description: "Balanced · faster, still strong" },
+  { id: "haiku",   label: "Haiku 4.5",   description: "Fastest · for simple back-and-forth" },
   { id: "default", label: "CLI default", description: "Use whatever your Claude CLI is set to" }
 ] as const;
 
@@ -377,10 +378,10 @@ export function CommandScreen({
   // re-fetched whenever the Python sidecar broadcasts `imports_changed`.
   type MarkedFolder = { name: string; absolutePath: string; markedAt: string };
   const [markedFolders, setMarkedFolders] = useState<MarkedFolder[]>([]);
-  // Haiku is the new install default — see CHAT_MODELS rationale.
+  // Opus is the AIOS default — see CHAT_MODELS rationale.
   // Returning users with a persisted `chat_model` setting override this on
   // mount in the useEffect below.
-  const [selectedModel, setSelectedModel] = useState<string>("haiku");
+  const [selectedModel, setSelectedModel] = useState<string>("opus");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelButtonRef = useRef<HTMLButtonElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);

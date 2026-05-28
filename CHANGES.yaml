@@ -260,3 +260,8 @@ releases:
       (3) Composio system prompt strengthened with a "memory override" clause: if an earlier turn asked about a connector that now appears in the connected list, Claude is told explicitly to proceed without re-asking. Kills the "do you have a GitHub account?" amnesia.
       (4) ContextOS install.md gets a new Step 0 — if context/import/ has files, read them all first, only ask about gaps. The A/B/C SCOPING menu only appears when the import folder is empty.
       (5) Default chat model flipped from "default" to Haiku 4.5. Returning users with a persisted preference keep their choice. Speed is the #1 churn theme — Haiku at 1-3s round-trip beats Sonnet at 5-15s for the first-10-minute experience.
+
+  - tag: v0.3.1
+    features:
+      - opus-default-model
+    notes: Default chat model flipped from Haiku (set in v0.3.0) to Opus. Reasoning — for AIOS's positioning, the smartest model per turn produces the best demos and the best work product, which matters more than raw speed. Sonnet and Haiku remain one click away in the model pill for when speed beats depth. Users with a persisted chat_model setting keep their choice.
