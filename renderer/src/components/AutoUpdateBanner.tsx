@@ -1,17 +1,25 @@
 import React, { useEffect, useState } from "react";
 import { ConfirmModal } from "./ui";
 
-// Auto-update popup — fires on Windows AND Mac now that Mac builds are
-// signed + notarized (v0.2.7+). Single centered modal that opens when an
-// update is detected. Two buttons:
-//   - Skip      → dismiss + remember this version in localStorage
-//   - Download  → close the popup and route the user to Settings → General,
-//                 where the "Restart & install" / "Check for updates"
-//                 button lives. The download/install path is unchanged;
-//                 this component is purely the entry-point nudge.
+// Auto-update popup — fires on Windows + Mac (signed + notarized since
+// v0.2.7). The flow is intentionally HANDS-OFF until the moment of
+// truth:
 //
-// Idle / checking / up-to-date / error states never trigger the popup —
-// only "available" or "ready" signal an actionable update.
+//   1. App boots → autoUpdater silently checks GitHub releases
+//   2. Newer version found → autoDownload=true starts background download
+//      → NO UI fired (user shouldn't be interrupted by a download they
+//      didn't ask for)
+//   3. Download completes → "ready" state arrives → THIS modal pops
+//      asking "Install now or Later?"
+//   4. Install now → quitAndInstall (with Mac auto-move-to-Applications
+//      safety net handled in main.ts:aios:install-update)
+//   5. Later → modal dismisses; autoInstallOnAppQuit=true means the
+//      update installs on next regular quit anyway
+//
+// We deliberately do NOT redirect to Settings or to GitHub — the entire
+// install is in-app and one click. The old "redirect to release page in
+// browser" path was a fallback for unsigned Mac builds; with signed
+// builds we never need it.
 
 const SKIP_STORAGE_KEY = "aios.autoUpdate.skippedVersion";
 
@@ -22,13 +30,17 @@ interface AutoUpdateEvent {
 
 interface AutoUpdateBannerProps {
   platform?: string | null;
-  onNavigateToSettings: () => void;
+  // Kept for backwards compat with App.tsx wiring; the banner no longer
+  // navigates anywhere because install is in-app.
+  onNavigateToSettings?: () => void;
 }
 
-export function AutoUpdateBanner({ platform, onNavigateToSettings }: AutoUpdateBannerProps) {
-  const [hasUpdate, setHasUpdate] = useState(false);
+export function AutoUpdateBanner({ platform }: AutoUpdateBannerProps) {
+  const [readyToInstall, setReadyToInstall] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const [dismissedForVersion, setDismissedForVersion] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   // Auto-update is supported on the desktop OS targets we ship signed
   // installers for. Linux/headless dev modes are excluded.
@@ -37,13 +49,16 @@ export function AutoUpdateBanner({ platform, onNavigateToSettings }: AutoUpdateB
   useEffect(() => {
     if (!isSupportedOs) return;
     const unsubscribe = window.aios?.onUpdateState?.((event: AutoUpdateEvent) => {
-      // Treat "available" and "ready" identically — both mean an update
-      // exists. The actual download happens silently in the background; from
-      // the user's perspective the only thing they need to know is "there's
-      // an update, click Download to act on it."
-      if (event.state === "available" || event.state === "ready") {
-        setHasUpdate(true);
-        if (event.version) setVersion(event.version);
+      // Capture the version on every event (it propagates from "available"
+      // through "downloading" to "ready") so the modal has it ready when
+      // it finally fires.
+      if (event.version) setVersion(event.version);
+      // Modal opens ONLY on "ready" — not on "available". This is the
+      // hands-off behavior: the user isn't asked to download (it just
+      // happens), they're asked to install (the moment that requires
+      // their attention because it relaunches the app).
+      if (event.state === "ready") {
+        setReadyToInstall(true);
       }
     });
     return () => unsubscribe?.();
@@ -63,32 +78,70 @@ export function AutoUpdateBanner({ platform, onNavigateToSettings }: AutoUpdateB
     }
   }, [version]);
 
-  if (!isSupportedOs || !hasUpdate || !version) return null;
+  if (!isSupportedOs || !readyToInstall || !version) return null;
 
   let persistedSkip: string | null = null;
   try { persistedSkip = localStorage.getItem(SKIP_STORAGE_KEY); } catch { /* ignore */ }
   if (dismissedForVersion === version || persistedSkip === version) return null;
 
-  function handleSkip() {
+  function handleLater() {
+    if (!version) return;
+    // Dismiss the modal — autoInstallOnAppQuit=true means the update
+    // still installs on next regular quit, so "Later" isn't "Never";
+    // it's "I'll get it next time I close the app."
+    setDismissedForVersion(version);
+  }
+
+  function handleSkipForever() {
     if (!version) return;
     try { localStorage.setItem(SKIP_STORAGE_KEY, version); } catch { /* ignore */ }
     setDismissedForVersion(version);
   }
 
-  function handleDownload() {
-    if (version) setDismissedForVersion(version);
-    onNavigateToSettings();
+  async function handleInstall() {
+    if (!version) return;
+    setInstalling(true);
+    setInstallError(null);
+    try {
+      const result = await window.aios?.installUpdate?.();
+      // On success: the OS-level swap quits this app, so we won't render
+      // anything past this line. On Mac, if the app isn't in /Applications,
+      // the install IPC handler moves it (auto-restarts) which also exits.
+      // We only reach the failure branch if the IPC returned an error
+      // structure (e.g. permissions, declined system dialog).
+      if (result && !result.ok) {
+        setInstalling(false);
+        setInstallError(result.error || result.reason || "Install failed");
+      }
+    } catch (err) {
+      setInstalling(false);
+      setInstallError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (installError) {
+    return (
+      <ConfirmModal
+        open={true}
+        title="Update couldn't install"
+        message={installError}
+        confirmLabel="Try again"
+        cancelLabel="Later"
+        onConfirm={() => { setInstallError(null); handleInstall(); }}
+        onCancel={handleLater}
+      />
+    );
   }
 
   return (
     <ConfirmModal
       open={true}
-      title="Update available"
-      message={`AIOS Desktop v${version} is available. Open Settings to download and install.`}
-      confirmLabel="Download"
-      cancelLabel="Skip"
-      onConfirm={handleDownload}
-      onCancel={handleSkip}
+      title="Update ready"
+      message={`AIOS Desktop v${version} downloaded and ready to install. ${installing ? "Installing…" : "The app will restart."}`}
+      confirmLabel={installing ? "Installing…" : "Install & restart"}
+      cancelLabel="Later"
+      onConfirm={installing ? () => {} : handleInstall}
+      onCancel={installing ? () => {} : handleLater}
     />
   );
 }
