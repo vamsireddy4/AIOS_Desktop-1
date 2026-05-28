@@ -57,10 +57,16 @@ jobs:
           ref: ${{ steps.tag.outputs.tag }}
           fetch-depth: 0
 
-      - name: Setup Node 20
+      # Node 22 is required by @electron/rebuild@4+ (engines.node >= 22.12).
+      # Node 20 silently crashes `npm ci` with "Exit handler never called!"
+      # on macOS arm64 because @electron/rebuild's postinstall trips an npm
+      # 10.8 internal bug under the engine mismatch — npm exits 0 without
+      # finishing the install, so the next step gets `tsc: command not found`.
+      # Bumped from 20 in v0.2.74 after v0.2.73 release ran into this on Mac.
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Setup Python 3.11
