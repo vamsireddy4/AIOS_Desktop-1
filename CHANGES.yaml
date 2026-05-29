@@ -333,3 +333,12 @@ releases:
       Correctness fix for the Workflows effort option shipped in v0.7.0/v0.8.0. Verified empirically against the now-installed Claude Code 2.1.156 + the official workflows doc: "ultracode" is NOT a valid --effort flag value (the flag only accepts low/medium/high/xhigh/max) — passing --effort ultracode is a hard error on every version. The earlier implementation would have errored every "Workflows" spawn on a 2.1.154+ CLI.
       The real headless trigger (confirmed by running it) is the word "workflow" in the prompt — Claude then writes and runs a multi-agent orchestration and returns the final report, even in claude --print (no approval prompt in -p mode).
       Fix: _effort_flags now maps ultracode -> xhigh (a valid level) and never emits ultracode. When the user picks "Workflows" AND the CLI is >= 2.1.154, run_claude prepends "Run this as a workflow." to the prompt to trigger the workflow runtime, and widens the spawn timeout to 30 min (workflows spawn many agents). On older CLIs it runs at xhigh and the existing UI nudge tells the user to update. Verified xhigh/max also degrade gracefully on Haiku (no error).
+
+  - tag: v0.8.2
+    features:
+      - effort-pill-label-fix
+      - empty-state-centering-fix
+    notes: |
+      UI polish from live testing on v0.8.1.
+      (1) Duplicate "Auto" pills fixed. The effort pill and the mode pill both defaulted to the label "Auto", sitting side by side — ambiguous. Effort default label is now "Standard" (id unchanged, behavior identical) so the two pills read distinctly: [sparkle] Standard / Deep / Max / Workflows for reasoning, [lightning] Auto / Plan / Edits for permission mode.
+      (2) Empty-chat state centering + clipping fix. The empty state used justify-content:center on the scroll container, which clips BOTH ends when the content (orb + greeting + 4 action cards) is taller than the viewport and makes the top unreachable — that was cutting off the action cards just above the composer. Replaced with margin:auto centering (+ max-width 640px), which centers when there's room and falls back to top-aligned + scrollable when tall. No more clipped cards or dead empty void.

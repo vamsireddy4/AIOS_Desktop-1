@@ -261,7 +261,7 @@ const CHAT_MODELS = [
 // an orchestration script and runs it across many agents) — needs Claude Code
 // 2.1.154+; the sidecar degrades it to xhigh on older CLIs so it never errors.
 const EFFORT_OPTIONS = [
-  { id: "auto",      label: "Auto",      description: "Default — fast, no extra reasoning budget" },
+  { id: "auto",      label: "Standard",  description: "Default — fast, no extra reasoning budget" },
   { id: "xhigh",     label: "Deep",      description: "Extra reasoning for harder, multi-step work" },
   { id: "max",       label: "Max",       description: "Maximum reasoning — slowest, most thorough" },
   { id: "ultracode", label: "Workflows", description: "Beta · Claude plans an orchestration and runs it across many agents" }

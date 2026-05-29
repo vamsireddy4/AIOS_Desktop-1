@@ -3037,14 +3037,22 @@ body.is-mac .sidebar-brand {
 }
 .aios-chat-thread::-webkit-scrollbar-thumb:hover { background: var(--gray-500); background-clip: padding-box; }
 
-.aios-chat-panel.is-empty .aios-chat-thread { justify-content: center; }
+/* Center the empty state via margin:auto rather than justify-content:center.
+   justify-content:center on a scroll container clips BOTH ends when the
+   content is taller than the viewport and makes the top unreachable — that
+   was cutting off the action cards above the composer. margin:auto centers
+   when there's room and falls back to top-aligned + scrollable when tall. */
+.aios-chat-panel.is-empty .aios-chat-thread { justify-content: flex-start; }
 
 .aios-chat-empty {
   display: grid;
   justify-items: center;
   gap: 14px;
   text-align: center;
-  padding: 0 20px;
+  padding: 8px 20px;
+  margin: auto;
+  width: 100%;
+  max-width: 640px;
 }
 
 .aios-chat-orb {
