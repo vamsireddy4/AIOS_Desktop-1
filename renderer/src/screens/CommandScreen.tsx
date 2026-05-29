@@ -3107,6 +3107,7 @@ export function CommandScreen({
                 <button
                   className={`aios-composer-tool ${listening ? "active" : ""}`}
                   type="button"
+                  aria-label={transcribing ? "Transcribing voice input" : listening ? "Stop voice input" : "Voice input"}
                   title={listening ? "Stop voice input" : "Voice input"}
                   onClick={toggleVoiceInput}
                   disabled={effectiveBusy || transcribing}

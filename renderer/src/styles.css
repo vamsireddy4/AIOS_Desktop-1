@@ -3066,18 +3066,9 @@ body.is-mac .sidebar-brand {
 }
 .aios-chat-thread::-webkit-scrollbar-thumb:hover { background: var(--gray-500); background-clip: padding-box; }
 
-/* Center the empty state via margin:auto rather than justify-content:center.
-   justify-content:center on a scroll container clips BOTH ends when the
-   content is taller than the viewport and makes the top unreachable — that
-   was cutting off the action cards above the composer. margin:auto centers
-   when there's room and falls back to top-aligned + scrollable when tall. */
-/* Empty state = a calm hero floating on the bare paper canvas. The thread
-   must show NO container chrome here (defensive reset: kill any border /
-   shadow / background / radius so there's never a "void box"), and the hero
-   centers reliably via a full-height grid that scrolls if content overflows
-   instead of clipping. */
+/* The thread shows NO container chrome in the empty state (defensive reset:
+   kill any border / shadow / background / radius so there's never a "void box"). */
 .aios-chat-panel.is-empty .aios-chat-thread {
-  justify-content: stretch;
   padding: 0;
   border: none !important;
   outline: none !important;
@@ -3086,11 +3077,20 @@ body.is-mac .sidebar-brand {
   border-radius: 0 !important;
 }
 
+/* Empty state = a calm hero floating on the bare paper canvas, centered WHEN
+   there's room. The load-bearing bit is `align-content: safe center`: plain
+   `center` (and the old `place-content: center`) centers the block inside the
+   scroll container, but when the orb + welcome + 4 action cards are TALLER than
+   the viewport it pushes the top above scrollTop:0 where it's unreachable and
+   clipped — leaving only the grid of gray surface cards visible (the "gray box"
+   the hero was cut off above). The `safe` keyword falls back to top-aligned +
+   scrollable on overflow, so nothing is ever clipped at any window height. */
 .aios-chat-empty {
   min-height: 100%;
   box-sizing: border-box;
   display: grid;
-  place-content: center;
+  align-content: safe center;
+  justify-content: center;
   justify-items: center;
   gap: 14px;
   text-align: center;
