@@ -365,3 +365,9 @@ releases:
       (3) Subagent visibility. The Task/Agent sub-agent tool now shows "Delegating to @researcher: <subtask>" instead of "Spawning a sub-agent" — so during multi-agent runs and workflows you see who is doing what, live.
       (4) Workflows show live steps. Because tool events stream during a workflow, the activity pill now ticks through each agent's real steps instead of just a spinner — combined with the v0.8.3 "Running a workflow · 9m 44s" framing.
       Verified: text streaming for normal chat was already live (--include-partial-messages); no regression. Upstream-only asks (workflow phase/agent-count events) are NOT shippable by AIOS and were dropped from scope.
+
+  - tag: v0.9.1
+    features:
+      - rebuild-clean-artifacts
+    notes: |
+      Clean rebuild of v0.9.0 — identical code. The v0.9.0 Mac DMG artifacts came out CORRUPT from CI (a transient notarize/packaging glitch — verified: a full-size download would not mount, "image not recognized"). That broke fresh installs AND Mac auto-update to v0.9.0. Nothing in v0.9.0's code touched packaging, so a rebuild regenerates valid DMGs + a correct latest-mac.yml. All v0.9.0 features (live activity intent labels, no-flicker pill, structured tool input, subagent visibility) ship here.
