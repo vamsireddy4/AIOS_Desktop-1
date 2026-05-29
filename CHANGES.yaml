@@ -325,3 +325,11 @@ releases:
       (2) Workflows library panel in the Modules screen — renders ONLY when at least one workflow exists, so there is no empty dead panel on a pre-2.1.154 CLI. Each saved workflow is a card with a Run button that invokes its /<name> command. Lights up automatically the moment the user saves their first workflow.
       (3) Version-aware unlock nudge: when the user selects the "Workflows" effort on a CLI older than 2.1.154, the composer shows an inline note — workflows need 2.1.154+, update to unlock, running as Deep meanwhile. The honest, testable-today piece that actually moves users toward enabling workflows.
       Phase 3 (next): converge /goal + the agents canvas onto native workflows once the CLI floor is met.
+
+  - tag: v0.8.1
+    features:
+      - workflows-trigger-fix
+    notes: |
+      Correctness fix for the Workflows effort option shipped in v0.7.0/v0.8.0. Verified empirically against the now-installed Claude Code 2.1.156 + the official workflows doc: "ultracode" is NOT a valid --effort flag value (the flag only accepts low/medium/high/xhigh/max) — passing --effort ultracode is a hard error on every version. The earlier implementation would have errored every "Workflows" spawn on a 2.1.154+ CLI.
+      The real headless trigger (confirmed by running it) is the word "workflow" in the prompt — Claude then writes and runs a multi-agent orchestration and returns the final report, even in claude --print (no approval prompt in -p mode).
+      Fix: _effort_flags now maps ultracode -> xhigh (a valid level) and never emits ultracode. When the user picks "Workflows" AND the CLI is >= 2.1.154, run_claude prepends "Run this as a workflow." to the prompt to trigger the workflow runtime, and widens the spawn timeout to 30 min (workflows spawn many agents). On older CLIs it runs at xhigh and the existing UI nudge tells the user to update. Verified xhigh/max also degrade gracefully on Haiku (no error).

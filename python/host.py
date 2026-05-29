@@ -688,11 +688,15 @@ _PLAN_MODE_HINT = (
 )
 
 
-# Effort levels every Claude Code CLI accepts. "ultracode" (the dynamic-
-# workflow trigger) was added in 2.1.154 — passing it to an older CLI is a
-# hard error, so we version-gate it and fall back to xhigh.
+# The ONLY values `claude --effort` accepts (verified on 2.1.156). "ultracode"
+# is NOT one of them — it's a session setting (`/effort ultracode`) that pairs
+# xhigh reasoning with automatic workflow orchestration. Passing
+# `--effort ultracode` is a hard error on every version. So the AIOS "Workflows"
+# option maps to xhigh for the flag, and triggers a workflow the real headless
+# way: the word "workflow" in the prompt (see run_claude). Dynamic workflows
+# require CLI >= 2.1.154.
 _EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
-_ULTRACODE_MIN_VERSION = (2, 1, 154)
+_WORKFLOWS_MIN_VERSION = (2, 1, 154)
 _cli_version_cache: tuple[int, int, int] | None = None
 _cli_version_probed = False
 
@@ -716,21 +720,25 @@ def _claude_cli_version(path: str) -> tuple[int, int, int] | None:
     return _cli_version_cache
 
 
-def _effort_flags(effort: str | None, path: str) -> list[str]:
-    """Map an effort selection to a CLI flag, never producing an arg the
-    installed CLI would reject. 'auto'/empty = no flag. 'ultracode' on a
-    pre-2.1.154 CLI gracefully degrades to 'xhigh' so the spawn never errors."""
+def _effort_flags(effort: str | None) -> list[str]:
+    """Map an effort selection to a valid --effort flag. Never produces an arg
+    the CLI would reject. 'auto'/empty = no flag. 'ultracode' (the Workflows
+    option) maps to xhigh — its reasoning component — because 'ultracode' is
+    not a valid --effort value; the workflow itself is triggered via the prompt
+    keyword in run_claude."""
     level = (effort or "").strip().lower()
+    if level == "ultracode":
+        level = "xhigh"
     if not level or level == "auto":
         return []
-    if level == "ultracode":
-        version = _claude_cli_version(path)
-        if version is None or version < _ULTRACODE_MIN_VERSION:
-            level = "xhigh"
-        return ["--effort", level]
     if level in _EFFORT_LEVELS:
         return ["--effort", level]
     return []
+
+
+def _supports_workflows(path: str) -> bool:
+    version = _claude_cli_version(path)
+    return version is not None and version >= _WORKFLOWS_MIN_VERSION
 
 
 def run_claude(
@@ -761,10 +769,19 @@ def run_claude(
     # the same tool-call result, dropping identify from ~10s to ~3-4s.
     # Falsy / unset = use the user's default model.
     model_flags = ["--model", model] if model else []
-    # Effort / reasoning level. "ultracode" turns on dynamic workflows
-    # (CLI >= 2.1.154); _effort_flags version-gates it so older CLIs degrade
-    # to xhigh instead of erroring.
-    effort_flags = _effort_flags(effort, path)
+    # Effort / reasoning level. _effort_flags only ever emits a value the CLI
+    # accepts (ultracode -> xhigh).
+    effort_flags = _effort_flags(effort)
+    # Dynamic workflows: the "Workflows" effort (ultracode) makes Claude write
+    # and run a multi-agent orchestration. In headless --print the trigger is
+    # the word "workflow" in the prompt (verified on 2.1.156) — NOT an --effort
+    # flag. Only do this on a CLI new enough to support it (>= 2.1.154);
+    # otherwise the prompt runs normally at xhigh and the UI nudge tells the
+    # user to update. Workflows spawn many agents, so widen the timeout.
+    if (effort or "").strip().lower() == "ultracode" and _supports_workflows(path) and stream_id is not None:
+        if "workflow" not in prompt.lower():
+            prompt = "Run this as a workflow.\n\n" + prompt
+        timeout = max(timeout, 1800)
     # Extra dirs to grant Claude tool scope over — used when the user attaches
     # a folder in chat or @mentions a marked import folder. Lazy: --add-dir only
     # grants Read/Glob/Grep permission, it does NOT pre-read the directory, so
