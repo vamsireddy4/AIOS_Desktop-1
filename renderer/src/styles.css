@@ -3071,17 +3071,35 @@ body.is-mac .sidebar-brand {
    content is taller than the viewport and makes the top unreachable — that
    was cutting off the action cards above the composer. margin:auto centers
    when there's room and falls back to top-aligned + scrollable when tall. */
-.aios-chat-panel.is-empty .aios-chat-thread { justify-content: flex-start; }
+/* Empty state = a calm hero floating on the bare paper canvas. The thread
+   must show NO container chrome here (defensive reset: kill any border /
+   shadow / background / radius so there's never a "void box"), and the hero
+   centers reliably via a full-height grid that scrolls if content overflows
+   instead of clipping. */
+.aios-chat-panel.is-empty .aios-chat-thread {
+  justify-content: stretch;
+  padding: 0;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+}
 
 .aios-chat-empty {
+  min-height: 100%;
+  box-sizing: border-box;
   display: grid;
+  place-content: center;
   justify-items: center;
   gap: 14px;
   text-align: center;
-  padding: 8px 20px;
-  margin: auto;
+  padding: 32px 20px;
+  margin: 0 auto;
   width: 100%;
   max-width: 640px;
+  border: none;
+  background: transparent;
 }
 
 .aios-chat-orb {

@@ -389,3 +389,9 @@ releases:
       - module-skills-in-ui
     notes: |
       Modules screen now shows a plugin-module's bundled skills. list_modules returns a `skills` array (name + description from each skills/<name>/SKILL.md) for plugin-modules; the module card shows "N skills" and, when expanded, lists each skill with a green "ready" health dot + its description. Makes "a module is a bunch of skills" tangible and answers "is it working" — every loaded skill shows ready. (GrowthOS now displays its 3 skills.)
+
+  - tag: v0.10.2
+    features:
+      - empty-chat-void-fix
+    notes: |
+      Design-pass fix (Norman/Krug/Nielsen/Locke/Stanley rubric) for the empty-chat screen. The first-run chat showed a large gray bordered "void box" with the welcome hero clipped to a sliver above the composer — failing Locke (orphan element floating in a void) and Krug (the screen didn't say what to do). No CSS rule was found drawing the box, so the empty-state thread now carries a defensive reset (border/outline/box-shadow/background/radius all cleared) and the hero centers via a full-height grid (place-content:center, min-height:100%) that scrolls instead of clipping when tall. The composer was verified structurally sound (empty textarea collapses to min-height; no real dead-space bug — the close-up was zoom). Other screens (Modules/Connectors/Agents) to be audited screen-by-screen against the rubric with live screenshots next.
