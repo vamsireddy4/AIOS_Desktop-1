@@ -243,6 +243,20 @@ export interface ClaudeToolUseEvent {
   id: string;
   name: string;
   summary: string;
+  // Structured tool input so the activity strip can show a precise label
+  // ("Searching for X in src/", "Reading Button.tsx", "Delegating to
+  // code-reviewer") instead of a generic one. Only present-fields are sent.
+  inputData?: {
+    command?: string;
+    file_path?: string;
+    path?: string;
+    pattern?: string;
+    query?: string;
+    url?: string;
+    description?: string;
+    subagent_type?: string;
+    prompt?: string;
+  };
   // Only populated when name === "ExitPlanMode" — the full plan markdown
   // Claude proposed in plan mode. Renderer uses it to render a Plan card.
   plan?: string;

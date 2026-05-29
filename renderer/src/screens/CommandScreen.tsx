@@ -144,32 +144,42 @@ function renderHighlightedPrompt(
   return parts;
 }
 
-function friendlyActivityLabel(activity: { tool: string; summary: string }): string {
+function friendlyActivityLabel(activity: { tool: string; summary: string; inputData?: import("../types").ClaudeToolUseEvent["inputData"] }): string {
   const tool = activity.tool;
+  const d = activity.inputData ?? {};
+  // Last path segment so the label stays short ("Reading Button.tsx", not the
+  // whole path). The full path lives in the summary <code> tooltip.
+  const base = (p?: string) => (p ? p.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || p : "");
+  const clip = (s?: string, n = 60) => (s && s.length > n ? `${s.slice(0, n)}…` : s || "");
+  const host = (u?: string) => { try { return u ? new URL(u).host : ""; } catch { return ""; } };
   switch (tool) {
     case "Bash":
     case "PowerShell":
-      return "Running a command";
+      return d.command ? `Running: ${clip(d.command)}` : "Running a command";
     case "Read":
-      return "Reading a file";
+      return d.file_path ? `Reading ${base(d.file_path)}` : "Reading a file";
     case "Write":
-      return "Writing a file";
+      return d.file_path ? `Writing ${base(d.file_path)}` : "Writing a file";
     case "Edit":
     case "MultiEdit":
-      return "Editing a file";
+      return d.file_path ? `Editing ${base(d.file_path)}` : "Editing a file";
     case "Glob":
-      return "Searching files";
+      return d.pattern ? `Finding ${clip(d.pattern, 40)}` : "Searching files";
     case "Grep":
-      return "Searching code";
+      return d.pattern ? `Searching for ${clip(d.pattern, 40)}${d.path ? ` in ${base(d.path)}` : ""}` : "Searching code";
     case "WebFetch":
-      return "Fetching a web page";
+      return host(d.url) ? `Fetching ${host(d.url)}` : "Fetching a web page";
     case "WebSearch":
-      return "Searching the web";
+      return d.query ? `Searching the web: ${clip(d.query, 50)}` : "Searching the web";
     case "TodoWrite":
-    case "Task":
       return "Updating to-do list";
-    case "Agent":
-      return "Spawning a sub-agent";
+    case "Task":
+    case "Agent": {
+      // The sub-agent tool. subagent_type names the specialist; prompt's first
+      // line is the delegated subtask.
+      const who = d.subagent_type ? `@${d.subagent_type}` : "a sub-agent";
+      return d.prompt ? `Delegating to ${who}: ${clip(d.prompt, 50)}` : `Delegating to ${who}`;
+    }
     case "NotebookEdit":
       return "Editing a notebook";
   }
@@ -409,7 +419,7 @@ export function CommandScreen({
   const voiceBasePromptRef = useRef("");
   const recognitionRef = useRef<any>(null);
   const activeStreamRef = useRef<{ streamId: string; assistantId: string } | null>(null);
-  const [activity, setActivity] = useState<{ tool: string; summary: string } | null>(null);
+  const [activity, setActivity] = useState<{ tool: string; summary: string; inputData?: import("../types").ClaudeToolUseEvent["inputData"] } | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   // Chat attachments. Files are uploaded into context/import/ and referenced
   // by workspace-relative path; folders are picked via the OS dialog and
@@ -977,7 +987,7 @@ export function CommandScreen({
         }));
       }
       if (payload.toolUse) {
-        setActivity({ tool: payload.toolUse.name, summary: payload.toolUse.summary });
+        setActivity({ tool: payload.toolUse.name, summary: payload.toolUse.summary, inputData: payload.toolUse.inputData });
         // Plan-mode: ExitPlanMode tool call carries the plan markdown in
         // input.plan. Stash for the turn's resolver to wrap into a Plan card
         // on the assistant message. Last write wins if Claude proposes
@@ -986,9 +996,10 @@ export function CommandScreen({
           pendingPlanRef.current = payload.toolUse.plan;
         }
       }
-      if (payload.toolResult) {
-        setActivity(null);
-      }
+      // Intentionally DON'T clear activity on toolResult — leaving the last
+      // step rendered until the next toolUse replaces it (or done/response
+      // clears it) eliminates the flicker to "Claude is thinking" between
+      // every tool call. The pill stays populated for the whole run.
       if (payload.done || payload.response) {
         setActivity(null);
         onRefreshWorkspace().catch(() => undefined);

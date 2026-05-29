@@ -185,10 +185,25 @@ def tool_uses_from_stream_message(payload: dict[str, Any]) -> list[dict[str, Any
                 if isinstance(value, str) and value.strip():
                     summary_parts.append(value.strip())
                     break
+            # Structured input so the renderer can show a precise, intent-rich
+            # label ("Searching for X in src/", "Reading Button.tsx",
+            # "Delegating to code-reviewer") instead of a generic one. Only the
+            # fields that exist are forwarded; not truncated (it's structured).
+            input_data: dict[str, str] = {}
+            for key in ("command", "file_path", "path", "pattern", "query", "url", "description", "subagent_type"):
+                value = inp.get(key)
+                if isinstance(value, str) and value.strip():
+                    input_data[key] = value.strip()[:400]
+            # Sub-agent (Task tool) carries its delegated prompt — surface the
+            # first line as the subtask so the user sees who's doing what.
+            sub_prompt = inp.get("prompt")
+            if isinstance(sub_prompt, str) and sub_prompt.strip():
+                input_data["prompt"] = sub_prompt.strip().splitlines()[0][:200]
             entry: dict[str, Any] = {
                 "id": str(block.get("id") or ""),
                 "name": str(block.get("name") or ""),
                 "summary": (summary_parts[0] if summary_parts else "")[:240],
+                "inputData": input_data,
             }
             # Plan-mode: surface the full plan markdown so the renderer can
             # render a Plan card with Accept / Reject buttons instead of a
