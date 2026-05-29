@@ -2143,6 +2143,10 @@ body.is-mac .sidebar-brand {
 /* ─── Animations ───────────────────────────────────────────────────────────── */
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Recoverable tool error: subtle amber tint, no alarm. The icon is static
+   (no .spin) so it already honors reduced motion; the muted bg keeps AA. */
+.aios-activity-row.is-error { border-color: var(--warning); background: var(--warning-soft); }
+.aios-activity-row.is-error > svg { color: var(--warning); }
 .button:active:not(:disabled) { transform: scale(0.98); }
 
 /* ─── Responsive ────────────────────────────────────────────────────────────── */

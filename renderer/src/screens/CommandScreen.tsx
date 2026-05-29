@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowDown,
   ArrowUp,
@@ -53,6 +54,8 @@ import {
 import { invoke, newId } from "../lib/api";
 import { track } from "../lib/analytics";
 import { formatRelativeTime } from "../lib/workspace-view";
+import { activityRowSuffix } from "../lib/activity-format";
+import { mergeWorkflowProgress } from "../lib/workflow-progress";
 import { PanelHeader, StatusBadge } from "../components/ui";
 import { GoalProgressBanner } from "../components/GoalProgressBanner";
 import { TeamProgressBanner } from "../components/TeamProgressBanner";
@@ -144,7 +147,7 @@ function renderHighlightedPrompt(
   return parts;
 }
 
-function friendlyActivityLabel(activity: { tool: string; summary: string; inputData?: import("../types").ClaudeToolUseEvent["inputData"] }): string {
+function friendlyActivityLabel(activity: { tool: string; summary: string; inputData?: import("../types").ClaudeToolUseEvent["inputData"]; isError?: boolean }): string {
   const tool = activity.tool;
   const d = activity.inputData ?? {};
   // Last path segment so the label stays short ("Reading Button.tsx", not the
@@ -419,9 +422,13 @@ export function CommandScreen({
   const voiceBasePromptRef = useRef("");
   const recognitionRef = useRef<any>(null);
   const activeStreamRef = useRef<{ streamId: string; assistantId: string } | null>(null);
-  const [activity, setActivity] = useState<{ tool: string; summary: string; inputData?: import("../types").ClaudeToolUseEvent["inputData"] } | null>(null);
+  const [activity, setActivity] = useState<{ tool: string; summary: string; inputData?: import("../types").ClaudeToolUseEvent["inputData"]; isError?: boolean } | null>(null);
   const [workflowProgress, setWorkflowProgress] = useState<import("../types").WorkflowProgressEvent | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  // Per-step timer: anchored when a toolUse starts a fresh step, ticked by
+  // the same 1s interval as the overall timer so we never run two intervals.
+  const stepAnchorAt = useRef<number | null>(null);
+  const [stepElapsedSeconds, setStepElapsedSeconds] = useState<number>(0);
   // Chat attachments. Files are uploaded into context/import/ and referenced
   // by workspace-relative path; folders are picked via the OS dialog and
   // referenced by absolute path (no copy — Claude gets --add-dir scope so it
@@ -988,7 +995,11 @@ export function CommandScreen({
         }));
       }
       if (payload.toolUse) {
+        // A fresh tool call is a brand-new object (isError undefined), so any
+        // prior error state auto-clears, and the per-step timer restarts here.
         setActivity({ tool: payload.toolUse.name, summary: payload.toolUse.summary, inputData: payload.toolUse.inputData });
+        stepAnchorAt.current = Date.now();
+        setStepElapsedSeconds(0);
         // Plan-mode: ExitPlanMode tool call carries the plan markdown in
         // input.plan. Stash for the turn's resolver to wrap into a Plan card
         // on the assistant message. Last write wins if Claude proposes
@@ -999,10 +1010,18 @@ export function CommandScreen({
       }
       // Dynamic-workflow live progress (CLI >= 2.1.154 streams task_started /
       // task_progress / task_notification). host.py normalizes these into a
-      // compact object; we keep the latest so the workflow row can show the
-      // current phase + running-agent count instead of a frozen spinner.
+      // compact object. Merge into prior state rather than replacing: sparse
+      // task_notification / single-agent events carry no phase and no agent
+      // roster, and a wholesale replace made the activity row flicker between
+      // the full roster and a thin label.
       if (payload.workflow) {
-        setWorkflowProgress(payload.workflow);
+        const incoming = payload.workflow;
+        setWorkflowProgress((prev) => mergeWorkflowProgress(prev, incoming));
+      }
+      // Tool errors are routine and usually auto-recover, so we only tint the
+      // current step (without clearing it) rather than alarming the user.
+      if (payload.toolResult?.isError === true) {
+        setActivity((prev) => (prev ? { ...prev, isError: true } : prev));
       }
       // Intentionally DON'T clear activity on toolResult — leaving the last
       // step rendered until the next toolUse replaces it (or done/response
@@ -1011,6 +1030,8 @@ export function CommandScreen({
       if (payload.done || payload.response) {
         setActivity(null);
         setWorkflowProgress(null);
+        stepAnchorAt.current = null;
+        setStepElapsedSeconds(0);
         onRefreshWorkspace().catch(() => undefined);
       }
     });
@@ -1039,10 +1060,12 @@ export function CommandScreen({
   // Gives users an "the app is alive and working" signal during long
   // turns instead of a blank wait.
   useEffect(() => {
-    if (!busy) { setElapsedSeconds(0); return; }
+    if (!busy) { setElapsedSeconds(0); setStepElapsedSeconds(0); stepAnchorAt.current = null; return; }
     const started = Date.now();
     const id = window.setInterval(() => {
       setElapsedSeconds(Math.floor((Date.now() - started) / 1000));
+      const stepStart = stepAnchorAt.current;
+      setStepElapsedSeconds(stepStart == null ? 0 : Math.max(0, Math.floor((Date.now() - stepStart) / 1000)));
     }, 1000);
     return () => window.clearInterval(id);
   }, [busy]);
@@ -1654,6 +1677,8 @@ export function CommandScreen({
     setActivity(null);
     setWorkflowProgress(null);
     setRuntimeMeta(null);
+    stepAnchorAt.current = null;
+    setStepElapsedSeconds(0);
     try {
       const command = trimmed === "/prime" ? "run_prime" : "run_task";
       track("chat_message_sent", {
@@ -2715,6 +2740,8 @@ export function CommandScreen({
               // pill: once task_progress events arrive, show the real phase +
               // running agents instead of the bare "Workflow" tool-use or a
               // frozen spinner.
+              const queued = pendingQueue.length;
+              const queuedSuffix = queued > 0 ? ` · ${queued} queued` : "";
               if (workflowProgress) {
                 const wf = workflowProgress;
                 const mins = Math.floor(elapsedSeconds / 60);
@@ -2727,17 +2754,22 @@ export function CommandScreen({
                 return (
                   <div className="aios-activity-row aios-activity-thinking is-workflow">
                     <Loader2 size={13} className="spin" />
-                    <span className="aios-activity-label">{headline}{elapsedSeconds >= 2 ? ` · ${elapsedLabel}` : ""}</span>
+                    <span className="aios-activity-label">{headline}{elapsedSeconds >= 2 ? ` · ${elapsedLabel}` : ""}{queuedSuffix}</span>
                     <code className="aios-activity-detail">{detail}</code>
                     {stopBtn}
                   </div>
                 );
               }
               if (activity) {
+                const suffix = activityRowSuffix({ elapsedSeconds, stepElapsedSeconds, queued });
                 return (
-                  <div className="aios-activity-row">
-                    <Loader2 size={13} className="spin" />
-                    <span className="aios-activity-label">{friendlyActivityLabel(activity)}{elapsedSeconds >= 2 ? ` · ${elapsedSeconds}s` : ""}</span>
+                  <div className={`aios-activity-row${activity.isError ? " is-error" : ""}`}>
+                    {activity.isError ? (
+                      <AlertCircle size={13} aria-label="step hit a recoverable error" />
+                    ) : (
+                      <Loader2 size={13} className="spin" />
+                    )}
+                    <span className="aios-activity-label">{friendlyActivityLabel(activity)}{suffix}</span>
                     {activity.summary ? <code className="aios-activity-detail">{activity.summary}</code> : null}
                     {stopBtn}
                   </div>
@@ -2749,7 +2781,7 @@ export function CommandScreen({
                 return (
                   <div className="aios-activity-row aios-activity-thinking is-workflow">
                     <Loader2 size={13} className="spin" />
-                    <span className="aios-activity-label">Running a workflow{elapsedSeconds >= 2 ? ` · ${elapsedLabel}` : ""}</span>
+                    <span className="aios-activity-label">Running a workflow{elapsedSeconds >= 2 ? ` · ${elapsedLabel}` : ""}{queuedSuffix}</span>
                     <code className="aios-activity-detail">agents working in the background — one report at the end. Minutes is normal.</code>
                     {stopBtn}
                   </div>
@@ -2758,7 +2790,7 @@ export function CommandScreen({
               return (
                 <div className="aios-activity-row aios-activity-thinking">
                   <Loader2 size={13} className="spin" />
-                  <span className="aios-activity-label">Claude is thinking…{elapsedSeconds >= 2 ? ` · ${elapsedSeconds}s` : ""}</span>
+                  <span className="aios-activity-label">Claude is thinking…{elapsedSeconds >= 2 ? ` · ${elapsedSeconds}s` : ""}{queuedSuffix}</span>
                   {stopBtn}
                 </div>
               );
