@@ -240,6 +240,17 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   }
 
+  // macOS: ensure the app itself is the frontmost application immediately
+  // after the main window is created. Without this, the window appears in
+  // the Dock and gets created on screen, but macOS doesn't automatically
+  // raise the app above whatever app the user was previously using —
+  // resulting in the "click once to bounce, click again to actually see it"
+  // experience. steal:true is required; without it, focus() is a no-op when
+  // another app currently holds focus.
+  if (process.platform === "darwin") {
+    app.focus({ steal: true });
+  }
+
   // Route every link click / window.open / target=_blank that the renderer
   // emits into the user's default system browser. Without this, Electron
   // either replaces the app window with the destination page or pops up an
@@ -1369,15 +1380,33 @@ app.whenReady().then(() => {
     }
 
     try {
-      // isSilent: pass /S to NSIS to suppress the installer UI on update
-      // installs (only honored when the installed shell supports it; with
-      // assistedInstaller / oneClick:false the wizard may briefly flash, but
-      // the flag is the strongest signal we can pass).
-      // isForceRunAfter: relaunch the app automatically once install finishes
-      // so the user lands back in AIOS without having to double-click again.
-      autoUpdater.quitAndInstall(true, true);
+      // Signal before-quit to NOT intercept this quit — Squirrel.Mac
+      // needs an uninterrupted quit→swap→relaunch sequence. Any
+      // event.preventDefault() or app.exit() in before-quit breaks it.
+      isInstallingUpdate = true;
+
+      // Do a best-effort graceful cleanup BEFORE handing off to Squirrel.
+      // We don't await indefinitely — 1 s is enough for the Python sidecar
+      // to flush and exit under normal conditions. This avoids the SQLite
+      // WAL lock on the next launch while still letting Squirrel relaunch.
+      scheduler?.stop();
+      globalShortcut.unregisterAll();
+      destroyControlBubble();
+      destroyControlPopup();
+      destroyCursorOverlay();
+      const stopHost = Promise.resolve(host?.stop()).catch(() => undefined);
+      const quickWatchdog = new Promise<void>((resolve) => setTimeout(resolve, 1000));
+      await Promise.race([stopHost, quickWatchdog]);
+
+      // isSilent=false on macOS: Squirrel.Mac ignores the silent flag and
+      // always runs silently, but passing false avoids a subtle bug in older
+      // electron-updater versions where true triggered a NSIS code path.
+      // isForceRunAfter=true: relaunch the app automatically after install.
+      const isMacOS = process.platform === "darwin";
+      autoUpdater.quitAndInstall(isMacOS ? false : true, true);
       return { ok: true };
     } catch (err) {
+      isInstallingUpdate = false; // reset so normal quit handling resumes
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
@@ -1387,25 +1416,42 @@ app.whenReady().then(() => {
     //
     // The default Electron pattern is `if (getAllWindows().length === 0)
     // createWindow()`, but we always have at least the bubble + cursor
-    // overlay alive, so the count is never zero — clicking the dock icon
-    // did nothing. Users on Mac expect dock click to restore the main
-    // window if it was minimized or hidden.
+    // overlay alive, so the count is NEVER zero — clicking the dock icon
+    // did nothing if mainWindow was null. Guard on mainWindow state instead.
     //
-    // We deliberately don't focus the bubble/popup/overlay here: those
-    // are always-on-top peripheral windows that should follow the main
-    // window's app lifecycle, not become focus targets themselves.
+    // app.focus({ steal: true }) MUST come before show/focus. On macOS,
+    // mainWindow.focus() only raises within the app's own window stack;
+    // it does NOT make the app the frontmost application. Without
+    // app.focus() the window surfaces but stays behind other apps —
+    // the user has to click the dock icon a second time.
     if (mainWindow && !mainWindow.isDestroyed()) {
+      app.focus({ steal: true });
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
       return;
     }
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // Main window is gone (user closed it or it was never created).
+    // Re-create it. The bubble/overlay windows being alive means
+    // getAllWindows().length > 0, so we can't rely on that check.
+    createWindow();
   });
 });
 
 let isCleaningUp = false;
+// Set to true before calling autoUpdater.quitAndInstall() so the
+// before-quit handler does NOT preventDefault() — Squirrel.Mac needs
+// the quit to propagate uninterrupted so it can swap the binary and
+// relaunch the app. Any preventDefault() or app.exit(0) here would
+// bypass Squirrel's relaunch hook, leaving the user with no app.
+let isInstallingUpdate = false;
+
 app.on("before-quit", (event) => {
+  // Let the quit flow through unmodified when an update install triggered
+  // it. Squirrel.Mac handles the binary swap + relaunch itself; interfering
+  // with event.preventDefault() or calling app.exit() breaks that.
+  if (isInstallingUpdate) return;
+
   if (isCleaningUp) return;
   isCleaningUp = true;
   event.preventDefault();
@@ -1421,7 +1467,9 @@ app.on("before-quit", (event) => {
   // lock and fails until the user reboots.
   const stopHost = Promise.resolve(host?.stop()).catch(() => undefined);
   const watchdog = new Promise<void>((resolve) => setTimeout(resolve, 2500));
-  Promise.race([stopHost, watchdog]).finally(() => app.exit(0));
+  // Use app.quit() (not app.exit()) so electron-updater's
+  // autoInstallOnAppQuit hook fires if a download is already staged.
+  Promise.race([stopHost, watchdog]).finally(() => app.quit());
 });
 
 app.on("window-all-closed", () => {
