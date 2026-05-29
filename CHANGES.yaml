@@ -383,3 +383,9 @@ releases:
       (2) First module: GrowthOS — a bundle of 3 skills (cold-outreach, content-calendar, lead-magnet) in the starter kit. The template for all future modules.
       (3) list_modules now recognizes plugin-modules (dir with plugin.json), so they show as installed module cards in the Modules screen.
       Next: group a module's skills under its card in the UI + per-skill health checks; migrate existing modules to plugin form.
+
+  - tag: v0.10.1
+    features:
+      - module-skills-in-ui
+    notes: |
+      Modules screen now shows a plugin-module's bundled skills. list_modules returns a `skills` array (name + description from each skills/<name>/SKILL.md) for plugin-modules; the module card shows "N skills" and, when expanded, lists each skill with a green "ready" health dot + its description. Makes "a module is a bunch of skills" tangible and answers "is it working" — every loaded skill shows ready. (GrowthOS now displays its 3 skills.)

@@ -309,6 +309,10 @@ export interface ModuleInfo {
   builtIn?: boolean;
   builtInRoute?: string | null;
   builtInButtonLabel?: string | null;
+  // Plugin-modules (a Claude Code plugin bundling skills, loaded via
+  // --plugin-dir). When true, `skills` lists the bundled, always-on skills.
+  isPlugin?: boolean;
+  skills?: Array<{ id: string; name: string; description: string }>;
 }
 
 export interface WorkspaceInfo {

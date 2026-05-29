@@ -1902,6 +1902,35 @@ body.is-mac .sidebar-brand {
   font-weight: 600;
   color: var(--sage);
 }
+/* Skills nested under an expanded module card */
+.modules-expand-skills { margin-bottom: 14px; }
+.modules-skill-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.modules-skill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.modules-skill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: 0 0 auto;
+  background: var(--sage);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sage) 18%, transparent);
+}
+.modules-skill-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.modules-skill-text strong { font-size: 13px; font-weight: 600; text-transform: capitalize; }
+.modules-skill-text span { font-size: 12px; line-height: 1.45; color: var(--ink-soft); }
 .modules-connections-panel {
   background: var(--surface);
   border: 1px solid var(--border);

@@ -987,6 +987,32 @@ def list_modules() -> list[dict[str, Any]]:
                 require_substantive=bool(registry.get("requireSubstantiveContent")),
             )
             registered_row = registered.get(module_id)
+            # For plugin-modules, surface the bundled skills so the Modules
+            # screen can show what the module actually does (name + description
+            # from each skills/<skill>/SKILL.md frontmatter).
+            module_skills: list[dict[str, Any]] = []
+            if is_plugin_module:
+                skills_dir = child / "skills"
+                if skills_dir.is_dir():
+                    for sk in sorted(skills_dir.iterdir(), key=lambda p: p.name.lower()):
+                        skill_md = sk / "SKILL.md"
+                        if not (sk.is_dir() and skill_md.is_file()):
+                            continue
+                        s_name, s_desc = sk.name, ""
+                        try:
+                            stext = skill_md.read_text(encoding="utf-8", errors="ignore")
+                        except OSError:
+                            stext = ""
+                        if stext.startswith("---"):
+                            end = stext.find("---", 3)
+                            if end != -1:
+                                for line in stext[3:end].splitlines():
+                                    st = line.strip()
+                                    if st.lower().startswith("name:"):
+                                        s_name = st[5:].strip() or s_name
+                                    elif st.lower().startswith("description:"):
+                                        s_desc = st[12:].strip()
+                        module_skills.append({"id": sk.name, "name": s_name, "description": s_desc})
             output.append(
                 {
                     "id": module_id,
@@ -1000,6 +1026,8 @@ def list_modules() -> list[dict[str, Any]]:
                     "artifacts": registry.get("artifacts", []),
                     "connections": registry.get("connections", []),
                     "requiredConnectors": registry.get("requiredConnectors", []),
+                    "isPlugin": is_plugin_module,
+                    "skills": module_skills,
                     "builtIn": bool(registry.get("builtIn")),
                     "builtInRoute": registry.get("builtInRoute"),
                     "builtInButtonLabel": registry.get("builtInButtonLabel"),

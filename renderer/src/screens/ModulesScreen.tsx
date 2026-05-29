@@ -396,6 +396,11 @@ function ModuleRow({
                 ))}
               </span>
             ) : null}
+            {module.skills && module.skills.length > 0 ? (
+              <span className="modules-meta-item">
+                <span className="modules-meta-label"><Sparkles size={10} /> {module.skills.length} skill{module.skills.length === 1 ? "" : "s"}</span>
+              </span>
+            ) : null}
           </div>
         </div>
         <span className="modules-row-chev">
@@ -444,6 +449,22 @@ function ModuleRow({
 
       {expanded ? (
         <div className="modules-row-expand">
+          {module.skills && module.skills.length > 0 ? (
+            <div className="modules-expand-skills">
+              <span className="modules-meta-label">{module.skills.length} skill{module.skills.length === 1 ? "" : "s"} · always on</span>
+              <div className="modules-skill-rows">
+                {module.skills.map((sk) => (
+                  <div className="modules-skill-row" key={sk.id}>
+                    <span className="modules-skill-dot" title="Ready — loaded and auto-invoked by intent" />
+                    <div className="modules-skill-text">
+                      <strong>{sk.name.replace(/-/g, " ")}</strong>
+                      <span>{sk.description}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {module.artifacts && module.artifacts.length > 0 ? (
             <div className="modules-expand-meta">
               <span className="modules-meta-label">Adds to workspace</span>
