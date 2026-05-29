@@ -2700,6 +2700,18 @@ export function CommandScreen({
                   </div>
                 );
               }
+              if (selectedEffort === "ultracode") {
+                const mins = Math.floor(elapsedSeconds / 60);
+                const elapsedLabel = mins >= 1 ? `${mins}m ${elapsedSeconds % 60}s` : `${elapsedSeconds}s`;
+                return (
+                  <div className="aios-activity-row aios-activity-thinking is-workflow">
+                    <Loader2 size={13} className="spin" />
+                    <span className="aios-activity-label">Running a workflow{elapsedSeconds >= 2 ? ` · ${elapsedLabel}` : ""}</span>
+                    <code className="aios-activity-detail">agents working in the background — one report at the end. Minutes is normal.</code>
+                    {stopBtn}
+                  </div>
+                );
+              }
               return (
                 <div className="aios-activity-row aios-activity-thinking">
                   <Loader2 size={13} className="spin" />

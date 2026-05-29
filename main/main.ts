@@ -1087,7 +1087,13 @@ app.whenReady().then(() => {
         return { ok: true, data: await handleMainCommand(cmd, args) };
       }
 
-      const response = await host?.invoke(cmd, args);
+      // Dynamic workflows spawn many agents and run for many minutes with NO
+      // intermediate stream output, so the default 700s host-IPC ceiling would
+      // kill a perfectly healthy run ("Python host timed out for run_task").
+      // Give workflow runs a 50-minute ceiling — just above host.py's own
+      // workflow timeout, so the host's clean timeout wins if it ever trips.
+      const isWorkflowRun = cmd === "run_task" && (args as { effort?: string })?.effort === "ultracode";
+      const response = await host?.invoke(cmd, args, isWorkflowRun ? 3_000_000 : undefined);
       if (!response) return { ok: false, error: { code: "HOST_MISSING", message: "Python host is not running." } };
       return response.ok ? { ok: true, data: response.data } : { ok: false, error: response.error };
     } catch (error) {

@@ -781,7 +781,10 @@ def run_claude(
     if (effort or "").strip().lower() == "ultracode" and _supports_workflows(path) and stream_id is not None:
         if "workflow" not in prompt.lower():
             prompt = "Run this as a workflow.\n\n" + prompt
-        timeout = max(timeout, 1800)
+        # 45 min headroom: a many-agent web-research workflow (e.g. 24 targets x
+        # 3 phases) genuinely needs it. Main process waits 50 min (> this), so
+        # this host-side timeout wins with a clean CLAUDE_TIMEOUT if it trips.
+        timeout = max(timeout, 2700)
     # Extra dirs to grant Claude tool scope over — used when the user attaches
     # a folder in chat or @mentions a marked import folder. Lazy: --add-dir only
     # grants Read/Glob/Grep permission, it does NOT pre-read the directory, so

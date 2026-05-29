@@ -342,3 +342,12 @@ releases:
       UI polish from live testing on v0.8.1.
       (1) Duplicate "Auto" pills fixed. The effort pill and the mode pill both defaulted to the label "Auto", sitting side by side — ambiguous. Effort default label is now "Standard" (id unchanged, behavior identical) so the two pills read distinctly: [sparkle] Standard / Deep / Max / Workflows for reasoning, [lightning] Auto / Plan / Edits for permission mode.
       (2) Empty-chat state centering + clipping fix. The empty state used justify-content:center on the scroll container, which clips BOTH ends when the content (orb + greeting + 4 action cards) is taller than the viewport and makes the top unreachable — that was cutting off the action cards just above the composer. Replaced with margin:auto centering (+ max-width 640px), which centers when there's room and falls back to top-aligned + scrollable when tall. No more clipped cards or dead empty void.
+
+  - tag: v0.8.3
+    features:
+      - workflow-ipc-timeout-fix
+      - workflow-progress-indicator
+    notes: |
+      Workflow reliability + visibility, from watching a real 24-investor workflow run live in the app.
+      (1) LOAD-BEARING FIX — long workflows were being KILLED. The main process gave the Python host a 700s (~11.7 min) IPC ceiling on run_task. Workflows emit NO intermediate stream events while their agents work in the background, so the main process saw silence and aborted healthy runs with "Python host timed out for run_task". Fix: run_task with effort=ultracode now gets a 50-minute ceiling (main/main.ts), and host.py's own workflow timeout is raised to 45 min — so the host's clean timeout wins if it ever trips. A many-agent web-research workflow can now actually finish.
+      (2) Workflow progress indicator. While a workflow runs you saw only "Claude is thinking… · 584s" — no idea what was happening. Now the activity strip shows "Running a workflow · 9m 44s" with a sub-line: "agents working in the background — one report at the end. Minutes is normal." Sets expectations so a multi-minute run doesn't look stuck.
