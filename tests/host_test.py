@@ -112,6 +112,38 @@ class HostTest(unittest.TestCase):
         self.assertIsNone(_workflow_event_from_system({"type": "system", "subtype": "init", "session_id": "x"}))
         self.assertIsNone(_workflow_event_from_system({"type": "system", "subtype": "task_progress"}))  # no workflow_progress
 
+    def test_agents_materialize_to_claude_dir(self):
+        import agents as agents_mod
+        agents_mod.ensure_builtin_agents()  # seeds builtins AND syncs to .claude/agents/
+        agents_dir = Path(self.tempdir.name) / ".claude" / "agents"
+        # specialists are materialized; the CEO (orchestrator) is NOT a dispatch target
+        self.assertTrue((agents_dir / "marketing.md").exists())
+        self.assertTrue((agents_dir / "research.md").exists())
+        self.assertFalse((agents_dir / "ceo.md").exists())
+        body = (agents_dir / "marketing.md").read_text()
+        self.assertIn("name: marketing", body)
+        self.assertIn(agents_mod._AIOS_AGENT_MARKER, body)
+        # runner-only sentinels + the runtime placeholder are stripped from the body
+        self.assertNotIn("[ASSIGN_TASK", body)
+        self.assertNotIn("{USER_CONTEXT}", body)
+        # the destructive-action safety gate survives (in plain language)
+        self.assertIn("SAFETY GATE", body)
+
+    def test_agents_sync_prunes_only_managed(self):
+        import agents as agents_mod
+        agents_mod.ensure_builtin_agents()
+        agents_dir = Path(self.tempdir.name) / ".claude" / "agents"
+        # a hand-authored sub-agent (no AIOS marker) must NEVER be pruned
+        handwritten = agents_dir / "brief-writer.md"
+        handwritten.write_text("---\nname: brief-writer\ndescription: hand authored\n---\nKeep me.\n")
+        custom = agents_mod.create_custom_agent("Scout", "Recon", "You are Scout. Find things.")
+        slug = custom["id"]
+        self.assertTrue((agents_dir / f"{slug}.md").exists())  # custom agent materialized
+        agents_mod.delete_agent(slug)
+        self.assertFalse((agents_dir / f"{slug}.md").exists())  # managed file pruned on delete
+        self.assertTrue(handwritten.exists())  # unmarked file left untouched
+        self.assertIn("Keep me.", handwritten.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
