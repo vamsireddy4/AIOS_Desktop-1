@@ -959,15 +959,29 @@ def list_modules() -> list[dict[str, Any]]:
             if not child.is_dir():
                 continue
             install_md = child / "INSTALL.md"
-            if not install_md.exists():
+            plugin_manifest = child / ".claude-plugin" / "plugin.json"
+            is_plugin_module = plugin_manifest.is_file()
+            # A module is either the classic INSTALL.md-guided kind or a
+            # plugin-module (a Claude Code plugin bundling skills, loaded via
+            # --plugin-dir). Skip folders that are neither.
+            if not install_md.exists() and not is_plugin_module:
                 continue
             module_id = child.name
             discovered_ids.add(module_id)
             registry = MODULE_REGISTRY.get(module_id, {})
             readme_title, readme_desc = _parse_readme(child / "README.md")
-            name = registry.get("name") or readme_title or module_id.replace("-", " ").title()
-            description = readme_desc or registry.get("capability") or ""
-            installed_flag = bool(registry.get("alwaysInstalled")) or _module_installed(
+            # Plugin-modules carry their name/description in plugin.json — and,
+            # being plugins, they are active (skills auto-loaded) by their mere
+            # presence, so they count as installed.
+            plugin_meta: dict[str, Any] = {}
+            if is_plugin_module:
+                try:
+                    plugin_meta = json.loads(plugin_manifest.read_text(encoding="utf-8"))
+                except Exception:
+                    plugin_meta = {}
+            name = registry.get("name") or plugin_meta.get("name") or readme_title or module_id.replace("-", " ").title()
+            description = plugin_meta.get("description") or readme_desc or registry.get("capability") or ""
+            installed_flag = is_plugin_module or bool(registry.get("alwaysInstalled")) or _module_installed(
                 root,
                 registry.get("installedMarkers", []),
                 require_substantive=bool(registry.get("requireSubstantiveContent")),

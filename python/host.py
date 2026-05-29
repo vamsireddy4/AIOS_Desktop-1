@@ -756,6 +756,26 @@ def _supports_workflows(path: str) -> bool:
     return version is not None and version >= _WORKFLOWS_MIN_VERSION
 
 
+def _module_plugin_dirs() -> list[str]:
+    """Absolute paths of installed module-plugins. An AIOS module is a Claude
+    Code plugin — a directory with `.claude-plugin/plugin.json` bundling many
+    skills (+ optional commands/agents). Each is handed to the spawn via
+    `--plugin-dir` so its skills auto-invoke by intent (verified headless).
+    Only dirs with a real plugin.json are returned, so a malformed module
+    folder can never break the spawn."""
+    dirs: list[str] = []
+    try:
+        base = workspace_root() / "module-installs"
+        if not base.exists():
+            return dirs
+        for child in sorted(base.iterdir(), key=lambda p: p.name.lower()):
+            if child.is_dir() and (child / ".claude-plugin" / "plugin.json").is_file():
+                dirs.append(str(child))
+    except Exception:
+        pass
+    return dirs
+
+
 def run_claude(
     prompt: str,
     claude_path: str | None = None,
@@ -787,6 +807,12 @@ def run_claude(
     # Effort / reasoning level. _effort_flags only ever emits a value the CLI
     # accepts (ultracode -> xhigh).
     effort_flags = _effort_flags(effort)
+    # Module-plugins: each installed module is a Claude Code plugin loaded via
+    # --plugin-dir, so its bundled skills auto-invoke by intent. Modules = a
+    # bundle of skills (a mini-OS). See plans/2026-05-29-modules-as-plugins.md.
+    plugin_dir_flags: list[str] = []
+    for _pdir in _module_plugin_dirs():
+        plugin_dir_flags.extend(["--plugin-dir", _pdir])
     # Dynamic workflows: the "Workflows" effort (ultracode) makes Claude write
     # and run a multi-agent orchestration. In headless --print the trigger is
     # the word "workflow" in the prompt (verified on 2.1.156) — NOT an --effort
@@ -849,8 +875,8 @@ def run_claude(
     if pmode == "plan":
         plan_mode_hint = ["--append-system-prompt", _PLAN_MODE_HINT]
     attempts = [
-        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *effort_flags, *add_dir_flags, "--output-format", "json", "--permission-mode", pmode, prompt],
-        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *effort_flags, *add_dir_flags, "--output-format", "text", "--permission-mode", pmode, prompt],
+        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *effort_flags, *plugin_dir_flags, *add_dir_flags, "--output-format", "json", "--permission-mode", pmode, prompt],
+        [path, "--print", *resume, *mcp_isolation, *composio_hint, *context_hint, *agent_overlay, *plan_mode_hint, *model_flags, *effort_flags, *plugin_dir_flags, *add_dir_flags, "--output-format", "text", "--permission-mode", pmode, prompt],
     ]
     if stream_id:
         stream_command = [
@@ -864,6 +890,7 @@ def run_claude(
             *plan_mode_hint,
             *model_flags,
             *effort_flags,
+            *plugin_dir_flags,
             *add_dir_flags,
             "--verbose",
             "--output-format",

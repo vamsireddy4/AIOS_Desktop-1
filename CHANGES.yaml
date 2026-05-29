@@ -371,3 +371,15 @@ releases:
       - rebuild-clean-artifacts
     notes: |
       Clean rebuild of v0.9.0 — identical code. The v0.9.0 Mac DMG artifacts came out CORRUPT from CI (a transient notarize/packaging glitch — verified: a full-size download would not mount, "image not recognized"). That broke fresh installs AND Mac auto-update to v0.9.0. Nothing in v0.9.0's code touched packaging, so a rebuild regenerates valid DMGs + a correct latest-mac.yml. All v0.9.0 features (live activity intent labels, no-flicker pill, structured tool input, subagent visibility) ship here.
+
+  - tag: v0.10.0
+    features:
+      - modules-as-plugins
+      - growth-os-module
+      - plugin-module-detection
+    notes: |
+      Modules → Plugins foundation. An AIOS module is now a Claude Code PLUGIN — a self-contained dir (.claude-plugin/plugin.json + skills/ + optional commands/agents) bundling a domain's skills. VERIFIED headless: `claude --print --plugin-dir <dir> "<intent>"` auto-invokes a plugin's skill. Design: plans/2026-05-29-modules-as-plugins.md.
+      (1) Engine: python/host.py loads each installed module-plugin via --plugin-dir on every chat spawn (_module_plugin_dirs scans module-installs/* for .claude-plugin/plugin.json; only valid manifests, so a malformed module can't break the spawn). Skills auto-invoke by intent; commands/agents come too; disabling = stop passing the flag (fully reversible, no file copying).
+      (2) First module: GrowthOS — a bundle of 3 skills (cold-outreach, content-calendar, lead-magnet) in the starter kit. The template for all future modules.
+      (3) list_modules now recognizes plugin-modules (dir with plugin.json), so they show as installed module cards in the Modules screen.
+      Next: group a module's skills under its card in the UI + per-skill health checks; migrate existing modules to plugin form.
