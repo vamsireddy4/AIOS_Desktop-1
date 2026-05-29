@@ -267,6 +267,29 @@ export interface ClaudeToolResultEvent {
   isError: boolean;
 }
 
+export interface WorkflowAgentProgress {
+  label: string;
+  phase?: string | null;
+  state: string;
+}
+
+export interface WorkflowProgressEvent {
+  state: "started" | "running" | "completed" | string;
+  label: string;
+  name?: string | null;
+  description?: string | null;
+  phase?: string | null;
+  phaseIndex?: number | null;
+  phaseCount?: number | null;
+  agents?: WorkflowAgentProgress[];
+  running?: number;
+  total?: number;
+  summary?: string | null;
+  tokens?: number | null;
+  toolUses?: number | null;
+  durationMs?: number | null;
+}
+
 export interface ClaudeStreamEvent {
   streamId: string;
   delta?: string;
@@ -277,6 +300,7 @@ export interface ClaudeStreamEvent {
   done?: boolean;
   toolUse?: ClaudeToolUseEvent;
   toolResult?: ClaudeToolResultEvent;
+  workflow?: WorkflowProgressEvent;
 }
 
 declare global {

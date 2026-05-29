@@ -420,6 +420,7 @@ export function CommandScreen({
   const recognitionRef = useRef<any>(null);
   const activeStreamRef = useRef<{ streamId: string; assistantId: string } | null>(null);
   const [activity, setActivity] = useState<{ tool: string; summary: string; inputData?: import("../types").ClaudeToolUseEvent["inputData"] } | null>(null);
+  const [workflowProgress, setWorkflowProgress] = useState<import("../types").WorkflowProgressEvent | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   // Chat attachments. Files are uploaded into context/import/ and referenced
   // by workspace-relative path; folders are picked via the OS dialog and
@@ -996,12 +997,20 @@ export function CommandScreen({
           pendingPlanRef.current = payload.toolUse.plan;
         }
       }
+      // Dynamic-workflow live progress (CLI >= 2.1.154 streams task_started /
+      // task_progress / task_notification). host.py normalizes these into a
+      // compact object; we keep the latest so the workflow row can show the
+      // current phase + running-agent count instead of a frozen spinner.
+      if (payload.workflow) {
+        setWorkflowProgress(payload.workflow);
+      }
       // Intentionally DON'T clear activity on toolResult — leaving the last
       // step rendered until the next toolUse replaces it (or done/response
       // clears it) eliminates the flicker to "Claude is thinking" between
       // every tool call. The pill stays populated for the whole run.
       if (payload.done || payload.response) {
         setActivity(null);
+        setWorkflowProgress(null);
         onRefreshWorkspace().catch(() => undefined);
       }
     });
@@ -1643,6 +1652,7 @@ export function CommandScreen({
     setAttachments([]);
     setBusy(true);
     setActivity(null);
+    setWorkflowProgress(null);
     setRuntimeMeta(null);
     try {
       const command = trimmed === "/prime" ? "run_prime" : "run_task";
@@ -2701,6 +2711,28 @@ export function CommandScreen({
                   Stop
                 </button>
               );
+              // Live workflow progress takes priority over the generic activity
+              // pill: once task_progress events arrive, show the real phase +
+              // running agents instead of the bare "Workflow" tool-use or a
+              // frozen spinner.
+              if (workflowProgress) {
+                const wf = workflowProgress;
+                const mins = Math.floor(elapsedSeconds / 60);
+                const elapsedLabel = mins >= 1 ? `${mins}m ${elapsedSeconds % 60}s` : `${elapsedSeconds}s`;
+                const headline = wf.state === "completed" ? (wf.summary || "Workflow complete") : (wf.label || "Running a workflow");
+                const roster = (wf.agents ?? []).map((a) => a.label).filter(Boolean);
+                const detail = roster.length
+                  ? roster.slice(0, 3).join(", ") + (roster.length > 3 ? ` +${roster.length - 3}` : "")
+                  : (wf.description || "agents working in the background — minutes is normal.");
+                return (
+                  <div className="aios-activity-row aios-activity-thinking is-workflow">
+                    <Loader2 size={13} className="spin" />
+                    <span className="aios-activity-label">{headline}{elapsedSeconds >= 2 ? ` · ${elapsedLabel}` : ""}</span>
+                    <code className="aios-activity-detail">{detail}</code>
+                    {stopBtn}
+                  </div>
+                );
+              }
               if (activity) {
                 return (
                   <div className="aios-activity-row">
@@ -3102,7 +3134,7 @@ export function CommandScreen({
                   </div>
                 ) : null}
               </div>
-              <span className="aios-composer-hint">{voiceError ?? (listening ? "Listening... click mic to stop" : transcribing ? "Transcribing..." : effectiveBusy ? `${activity ? friendlyActivityLabel(activity) : "Claude is thinking…"}${elapsedSeconds >= 2 ? ` · ${elapsedSeconds}s` : ""}${pendingQueue.length > 0 ? ` · ${pendingQueue.length} queued` : ""}` : "")}</span>
+              <span className="aios-composer-hint">{voiceError ?? (listening ? "Listening... click mic to stop" : transcribing ? "Transcribing..." : effectiveBusy ? `${workflowProgress ? workflowProgress.label : activity ? friendlyActivityLabel(activity) : "Claude is thinking…"}${elapsedSeconds >= 2 ? ` · ${elapsedSeconds}s` : ""}${pendingQueue.length > 0 ? ` · ${pendingQueue.length} queued` : ""}` : "")}</span>
               <div className="aios-composer-right">
                 <button
                   className={`aios-composer-tool ${listening ? "active" : ""}`}
